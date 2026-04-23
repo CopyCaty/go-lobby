@@ -24,8 +24,8 @@ func (r *UserRepository) FindByUserName(ctx context.Context, userName string) (*
 	err := r.db.GetContext(ctx, &user, `
 		SELECT id, user_name, nickname, password_hash, status, created_at, updated_at
 		FROM gl_user
-		WHERE user_name = ?
-	`, userName)
+		WHERE user_name = ? AND STATUS != ?
+	`, userName, model.UserStatusDeleted)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil
 	}

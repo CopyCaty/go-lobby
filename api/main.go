@@ -1,6 +1,7 @@
 package main
 
 import (
+	"go-lobby/config"
 	"go-lobby/internal/handler"
 	"go-lobby/internal/repository"
 	"go-lobby/internal/service"
@@ -12,10 +13,13 @@ import (
 )
 
 func main() {
-
+	cfg, err := config.Load("config.yaml")
+	if err != nil {
+		log.Fatal(err)
+	}
 	db, err := sqlx.Connect(
-		"mysql",
-		"root:123456@tcp(127.0.0.1:3305)/go_lobby?parseTime=true&loc=Local",
+		cfg.Database.Type,
+		cfg.Database.DSN,
 	)
 	if err != nil {
 		log.Fatal(err)
@@ -35,7 +39,8 @@ func main() {
 	v1 := r.Group("/api/v1")
 	{
 		v1.POST("/users/register", userHandler.RegisterUser)
+		v1.POST("/users/login", userHandler.LoginUser)
 	}
 
-	r.Run(":8080")
+	r.Run(cfg.Server.Addr)
 }

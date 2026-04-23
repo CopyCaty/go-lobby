@@ -5,6 +5,7 @@ import (
 	"errors"
 	"go-lobby/internal/auth"
 	"go-lobby/internal/dto/req"
+	"go-lobby/internal/dto/res"
 	"go-lobby/internal/model"
 	"go-lobby/internal/repository"
 	"time"
@@ -49,4 +50,18 @@ func (s *UserService) RegisterUser(ctx context.Context, req *req.UserRegisterReq
 	}
 	user.ID = id
 	return user, nil
+}
+
+func (s *UserService) LoginUser(ctx context.Context, req *req.UserLoginRequest) (*res.UserLoginResponse, error) {
+	exist, err := s.repo.FindByUserName(ctx, req.UserName)
+	if err != nil {
+		return nil, err
+	}
+	if exist == nil || !auth.CheckPassword(req.Password, exist.PasswordHash) {
+		return nil, errors.New("用户名或密码错误")
+	}
+	if exist.Status == model.UserStatusBanned {
+		return nil, errors.New("账号已封禁")
+	}
+	return nil, nil
 }
