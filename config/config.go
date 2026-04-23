@@ -23,7 +23,7 @@ type DatabaseConfig struct {
 
 type JWTConfig struct {
 	Secret    string `yaml:"secret"`
-	ExpireSec string `yaml:"expire_sec"`
+	ExpireSec int64  `yaml:"expire_sec"`
 }
 
 func Load(path string) (*Config, error) {

@@ -12,12 +12,14 @@ import (
 )
 
 type UserService struct {
-	repo *repository.UserRepository
+	repo       *repository.UserRepository
+	jwtManager *auth.JWTManager
 }
 
-func NewUserService(repo *repository.UserRepository) *UserService {
+func NewUserService(repo *repository.UserRepository, jwtManager *auth.JWTManager) *UserService {
 	return &UserService{
-		repo: repo,
+		repo:       repo,
+		jwtManager: jwtManager,
 	}
 }
 
@@ -63,5 +65,15 @@ func (s *UserService) LoginUser(ctx context.Context, req *req.UserLoginRequest) 
 	if exist.Status == model.UserStatusBanned {
 		return nil, errors.New("账号已封禁")
 	}
-	return nil, nil
+	token, expiresIn, err := s.jwtManager.GenerateToken(exist)
+	if err != nil {
+		return nil, err
+	}
+	return &res.UserLoginResponse{
+		Token:     token,
+		ExpiresIn: expiresIn,
+		UserID:    exist.ID,
+		UserName:  exist.UserName,
+		Nickname:  exist.Nickname,
+	}, nil
 }

@@ -2,10 +2,12 @@ package main
 
 import (
 	"go-lobby/config"
+	"go-lobby/internal/auth"
 	"go-lobby/internal/handler"
 	"go-lobby/internal/repository"
 	"go-lobby/internal/service"
 	"log"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	_ "github.com/go-sql-driver/mysql"
@@ -26,8 +28,10 @@ func main() {
 	}
 	defer db.Close()
 
+	jwtManager := auth.NewJWTManager(cfg.JWT.Secret, time.Duration(cfg.JWT.ExpireSec))
+
 	userRepo := repository.NewUserRepository(db)
-	userService := service.NewUserService(userRepo)
+	userService := service.NewUserService(userRepo, jwtManager)
 	userHandler := handler.NewUserHandler(userService)
 
 	r := gin.Default()
