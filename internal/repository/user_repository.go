@@ -49,3 +49,19 @@ func (r *UserRepository) CreateUser(ctx context.Context, user *model.User) (int6
 	}
 	return id, nil
 }
+
+func (r *UserRepository) GetUserByID(ctx context.Context, userID int64) (*model.User, error) {
+	var user model.User
+	err := r.db.GetContext(ctx, &user, `
+		SELECT id, user_name, nickname, password_hash, status, created_at, updated_at
+		FROM gl_user
+		WHERE id = ? AND STATUS != ?
+	`, userID, model.UserStatusDeleted)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &user, nil
+}

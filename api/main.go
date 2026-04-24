@@ -4,6 +4,7 @@ import (
 	"go-lobby/config"
 	"go-lobby/internal/auth"
 	"go-lobby/internal/handler"
+	"go-lobby/internal/middleware"
 	"go-lobby/internal/repository"
 	"go-lobby/internal/service"
 	"log"
@@ -28,7 +29,7 @@ func main() {
 	}
 	defer db.Close()
 
-	jwtManager := auth.NewJWTManager(cfg.JWT.Secret, time.Duration(cfg.JWT.ExpireSec))
+	jwtManager := auth.NewJWTManager(cfg.JWT.Secret, time.Duration(cfg.JWT.ExpireSec)*time.Second)
 
 	userRepo := repository.NewUserRepository(db)
 	userService := service.NewUserService(userRepo, jwtManager)
@@ -44,6 +45,12 @@ func main() {
 	{
 		v1.POST("/users/register", userHandler.RegisterUser)
 		v1.POST("/users/login", userHandler.LoginUser)
+
+		authGroup := v1.Group("/")
+		authGroup.Use(middleware.AuthMiddleware(jwtManager))
+		{
+			authGroup.GET("/me", userHandler.Me)
+		}
 	}
 
 	r.Run(cfg.Server.Addr)

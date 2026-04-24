@@ -83,6 +83,21 @@
         color: var(--text);
         outline: none;
       }
+      textarea {
+        width: 100%;
+        min-height: 92px;
+        padding: 10px 10px;
+        border-radius: 8px;
+        border: 1px solid var(--border);
+        background: rgba(0, 0, 0, 0.22);
+        color: var(--text);
+        outline: none;
+        resize: vertical;
+      }
+      textarea:focus {
+        border-color: rgba(79, 140, 255, 0.6);
+        box-shadow: 0 0 0 3px rgba(79, 140, 255, 0.18);
+      }
       input:focus {
         border-color: rgba(79, 140, 255, 0.6);
         box-shadow: 0 0 0 3px rgba(79, 140, 255, 0.18);
@@ -151,7 +166,7 @@
     <div class="wrap">
       <header>
         <h1>go-lobby 本地测试页</h1>
-        <p class="hint">接口：<code>POST /api/v1/users/register</code></p>
+        <p class="hint">接口：<code>POST /api/v1/users/register</code> / <code>POST /api/v1/users/login</code> / <code>GET /api/v1/me</code></p>
       </header>
 
       <div class="grid">
@@ -194,6 +209,25 @@
             <button id="login_submit">登录</button>
             <span id="login_status" class="status"></span>
           </div>
+
+          <label for="token">token</label>
+          <textarea id="token" placeholder="登录成功后会自动回填，也可以手动粘贴 Bearer token"></textarea>
+        </section>
+
+        <section class="panel">
+          <h2>当前用户 /me</h2>
+          <label for="me_endpoint">endpoint</label>
+          <input id="me_endpoint" value="/api/v1/me" />
+
+          <div class="actions">
+            <button id="me_submit">获取当前用户</button>
+            <button id="clear_token" class="ghost" type="button">清空 token</button>
+            <span id="me_status" class="status"></span>
+          </div>
+
+          <div class="small">
+            请求头会自动带上 <code>Authorization: Bearer &lt;token&gt;</code>。
+          </div>
         </section>
 
         <section class="panel">
@@ -217,6 +251,12 @@
 
       function setLoginStatus(text, kind) {
         const el = $("login_status");
+        el.textContent = text || "";
+        el.className = "status" + (kind ? " " + kind : "");
+      }
+
+      function setMeStatus(text, kind) {
+        const el = $("me_status");
         el.textContent = text || "";
         el.className = "status" + (kind ? " " + kind : "");
       }
@@ -284,7 +324,10 @@
 
           $("output").textContent = pretty(data);
           if (resp.ok && data && data.code === 0) {
+            const token = data.data && data.data.token ? data.data.token : "";
+            $("token").value = token;
             setLoginStatus("登录成功", "ok");
+            setMeStatus(token ? "token 已更新，可继续测试 /me" : "登录成功，但响应里没有 token", token ? "ok" : "bad");
           } else {
             setLoginStatus("登录失败", "bad");
           }
@@ -293,6 +336,43 @@
           setLoginStatus("请求异常", "bad");
         } finally {
           $("login_submit").disabled = false;
+        }
+      }
+
+      async function getMe() {
+        const token = $("token").value.trim();
+        const endpoint = $("me_endpoint").value.trim() || "/api/v1/me";
+
+        $("me_submit").disabled = true;
+        setMeStatus("请求中...", "");
+        $("output").textContent = "{}";
+
+        try {
+          const headers = {};
+          if (token) {
+            headers.Authorization = token.startsWith("Bearer ") ? token : "Bearer " + token;
+          }
+
+          const resp = await fetch(endpoint, {
+            method: "GET",
+            headers,
+          });
+
+          const text = await resp.text();
+          let data;
+          try { data = JSON.parse(text); } catch (e) { data = { raw: text }; }
+
+          $("output").textContent = pretty(data);
+          if (resp.ok && data && data.code === 0) {
+            setMeStatus("获取成功", "ok");
+          } else {
+            setMeStatus("获取失败", "bad");
+          }
+        } catch (e) {
+          $("output").textContent = pretty({ error: String(e) });
+          setMeStatus("请求异常", "bad");
+        } finally {
+          $("me_submit").disabled = false;
         }
       }
 
@@ -306,6 +386,11 @@
       });
 
       $("login_submit").addEventListener("click", login);
+      $("me_submit").addEventListener("click", getMe);
+      $("clear_token").addEventListener("click", () => {
+        $("token").value = "";
+        setMeStatus("", "");
+      });
     </script>
   </body>
 </html>

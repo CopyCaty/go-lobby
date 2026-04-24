@@ -52,7 +52,7 @@ func (m *JWTManager) ParseToken(tokenString string) (*UserClaims, error) {
 		tokenString,
 		&UserClaims{},
 		func(token *jwt.Token) (interface{}, error) {
-			if token.Method != jwt.SigningMethodHS256 {
+			if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
 				return nil, errors.New("不支持的签名算法")
 			}
 			return m.secret, nil

@@ -77,3 +77,14 @@ func (s *UserService) LoginUser(ctx context.Context, req *req.UserLoginRequest) 
 		Nickname:  exist.Nickname,
 	}, nil
 }
+
+func (s *UserService) GetMe(ctx context.Context, userID int64) (*res.UserDetailResponse, error) {
+	user, err := s.repo.GetUserByID(ctx, userID)
+	if err != nil {
+		return nil, err
+	}
+	return &res.UserDetailResponse{
+		UserName: user.UserName,
+		Nickname: user.Nickname,
+	}, nil
+}
