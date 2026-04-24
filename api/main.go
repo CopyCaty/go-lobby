@@ -34,6 +34,8 @@ func main() {
 	userRepo := repository.NewUserRepository(db)
 	userService := service.NewUserService(userRepo, jwtManager)
 	userHandler := handler.NewUserHandler(userService)
+	matchQueueService := service.NewMatchQueueService()
+	matchHandler := handler.NewMatchQueueHandler(matchQueueService)
 
 	r := gin.Default()
 
@@ -50,7 +52,19 @@ func main() {
 		authGroup.Use(middleware.AuthMiddleware(jwtManager))
 		{
 			authGroup.GET("/me", userHandler.Me)
+
+			matchGroup := authGroup.Group("/match")
+			{
+				queueGroup := matchGroup.Group("/queue")
+				{
+					queueGroup.POST("/join", matchHandler.Join)
+					queueGroup.GET("/status", matchHandler.Status)
+					queueGroup.POST("/cancel", matchHandler.Cancel)
+				}
+			}
+
 		}
+
 	}
 
 	r.Run(cfg.Server.Addr)

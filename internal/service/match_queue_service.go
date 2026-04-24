@@ -76,9 +76,49 @@ func (s *MatchQueueService) Join(ctx context.Context, userID int64, req *req.Joi
 	return s.buildJoinResponse(userState), nil
 }
 
-func (s *MatchQueueService) Status(ctx context.Context, userID int64)
+func (s *MatchQueueService) Status(ctx context.Context, userID int64) (*res.StatusMatchQueueResponse, error) {
 
-func (s *MatchQueueService) Cancel(ctx context.Context, userID int64)
+	status, ok := s.users[userID]
+	if !ok {
+		return nil, errors.New("匹配状态不存在")
+	}
+	return &res.StatusMatchQueueResponse{
+		UserID:    userID,
+		Mode:      status.Mode,
+		Status:    status.Status,
+		TicketID:  status.TicketID,
+		RoomID:    status.RoomID,
+		Teams:     status.Teams,
+		UpdatedAt: status.UpdatedAt,
+	}, nil
+
+}
+
+func (s *MatchQueueService) Cancel(ctx context.Context, userID int64) (*res.StatusMatchQueueResponse, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	status, ok := s.users[userID]
+	if !ok {
+		return nil, errors.New("匹配状态不存在")
+	}
+	if status.Status != matchqueue.QueueStatusMatching {
+		return nil, errors.New("当前状态不允许取消")
+	}
+
+	mode := status.Mode
+	s.removeFromQueue(mode, userID)
+	status.Status = matchqueue.QueueStatusCancelled
+	status.UpdatedAt = time.Now()
+	return &res.StatusMatchQueueResponse{
+		UserID:    userID,
+		Mode:      status.Mode,
+		Status:    status.Status,
+		TicketID:  status.TicketID,
+		RoomID:    status.RoomID,
+		Teams:     status.Teams,
+		UpdatedAt: status.UpdatedAt,
+	}, nil
+}
 
 func (s *MatchQueueService) buildJoinResponse(state *matchqueue.QueueUserState) *res.JoinMatchQueueResponse {
 	return &res.JoinMatchQueueResponse{
@@ -114,6 +154,16 @@ func (s *MatchQueueService) TryMatch(mode string) {
 		state.RoomID = roomID
 		state.Teams = teams
 		state.UpdatedAt = now
+	}
+}
+
+func (s *MatchQueueService) removeFromQueue(mode string, userID int64) {
+	queue := s.queues[mode]
+	for i, entry := range queue {
+		if entry.UserID == userID {
+			s.queues[mode] = append(queue[:i], queue[i+1:]...)
+			break
+		}
 	}
 }
 

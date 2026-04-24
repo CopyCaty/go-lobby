@@ -166,7 +166,7 @@
     <div class="wrap">
       <header>
         <h1>go-lobby 本地测试页</h1>
-        <p class="hint">接口：<code>POST /api/v1/users/register</code> / <code>POST /api/v1/users/login</code> / <code>GET /api/v1/me</code></p>
+        <p class="hint">接口：用户 / 匹配队列</p>
       </header>
 
       <div class="grid">
@@ -231,10 +231,55 @@
         </section>
 
         <section class="panel">
+          <h2>加入匹配队列</h2>
+          <label for="queue_mode">mode</label>
+          <div class="row">
+            <select id="queue_mode" style="width: 100%; padding: 10px; border-radius: 8px; border: 1px solid var(--border); background: rgba(0, 0, 0, 0.22); color: var(--text);">
+              <option value="1v1">1v1</option>
+              <option value="2v2">2v2</option>
+            </select>
+          </div>
+
+          <div class="actions">
+            <button id="join_queue_submit">加入队列</button>
+            <span id="join_queue_status" class="status"></span>
+          </div>
+
+          <div class="small">
+            需要已登录（token 有效）。成功后会获得 TicketID 和 RoomID。
+          </div>
+        </section>
+
+        <section class="panel">
+          <h2>查询匹配状态</h2>
+          <div class="actions">
+            <button id="status_queue_submit">获取状态</button>
+            <span id="status_queue_status" class="status"></span>
+          </div>
+
+          <div class="small">
+            查询当前用户在匹配队列中的状态（匹配中/已匹配/已取消）。
+          </div>
+        </section>
+
+        <section class="panel">
+          <h2>取消匹配</h2>
+          <div class="actions">
+            <button id="cancel_queue_submit">取消匹配</button>
+            <span id="cancel_queue_status" class="status"></span>
+          </div>
+
+          <div class="small">
+            取消当前的匹配请求，只有在"匹配中"状态才能取消。
+          </div>
+        </section>
+
+        <section class="panel">
           <h2>响应</h2>
           <pre><code id="output">{}</code></pre>
           <div class="small">
-            如果返回 400：检查用户名/昵称/密码长度，或用户名是否已存在。
+            如果返回 400：检查用户名/昵称/密码长度，或用户名是否已存在。<br/>
+            匹配队列接口需要 token，请先完成登录。
           </div>
         </section>
       </div>
@@ -257,6 +302,24 @@
 
       function setMeStatus(text, kind) {
         const el = $("me_status");
+        el.textContent = text || "";
+        el.className = "status" + (kind ? " " + kind : "");
+      }
+
+      function setJoinQueueStatus(text, kind) {
+        const el = $("join_queue_status");
+        el.textContent = text || "";
+        el.className = "status" + (kind ? " " + kind : "");
+      }
+
+      function setStatusQueueStatus(text, kind) {
+        const el = $("status_queue_status");
+        el.textContent = text || "";
+        el.className = "status" + (kind ? " " + kind : "");
+      }
+
+      function setCancelQueueStatus(text, kind) {
+        const el = $("cancel_queue_status");
         el.textContent = text || "";
         el.className = "status" + (kind ? " " + kind : "");
       }
@@ -376,6 +439,121 @@
         }
       }
 
+      async function joinQueue() {
+        const token = $("token").value.trim();
+        if (!token) {
+          setJoinQueueStatus("请先登录", "bad");
+          return;
+        }
+
+        const mode = $("queue_mode").value;
+
+        $("join_queue_submit").disabled = true;
+        setJoinQueueStatus("请求中...", "");
+        $("output").textContent = "{}";
+
+        try {
+          const resp = await fetch("/api/v1/match/queue/join", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              "Authorization": token.startsWith("Bearer ") ? token : "Bearer " + token,
+            },
+            body: JSON.stringify({ mode }),
+          });
+
+          const text = await resp.text();
+          let data;
+          try { data = JSON.parse(text); } catch (e) { data = { raw: text }; }
+
+          $("output").textContent = pretty(data);
+          if (resp.ok && data && data.code === 0) {
+            setJoinQueueStatus("加入成功", "ok");
+          } else {
+            setJoinQueueStatus("加入失败", "bad");
+          }
+        } catch (e) {
+          $("output").textContent = pretty({ error: String(e) });
+          setJoinQueueStatus("请求异常", "bad");
+        } finally {
+          $("join_queue_submit").disabled = false;
+        }
+      }
+
+      async function statusQueue() {
+        const token = $("token").value.trim();
+        if (!token) {
+          setStatusQueueStatus("请先登录", "bad");
+          return;
+        }
+
+        $("status_queue_submit").disabled = true;
+        setStatusQueueStatus("请求中...", "");
+        $("output").textContent = "{}";
+
+        try {
+          const resp = await fetch("/api/v1/match/queue/status", {
+            method: "GET",
+            headers: {
+              "Authorization": token.startsWith("Bearer ") ? token : "Bearer " + token,
+            },
+          });
+
+          const text = await resp.text();
+          let data;
+          try { data = JSON.parse(text); } catch (e) { data = { raw: text }; }
+
+          $("output").textContent = pretty(data);
+          if (resp.ok && data && data.code === 0) {
+            setStatusQueueStatus("获取成功", "ok");
+          } else {
+            setStatusQueueStatus("获取失败", "bad");
+          }
+        } catch (e) {
+          $("output").textContent = pretty({ error: String(e) });
+          setStatusQueueStatus("请求异常", "bad");
+        } finally {
+          $("status_queue_submit").disabled = false;
+        }
+      }
+
+      async function cancelQueue() {
+        const token = $("token").value.trim();
+        if (!token) {
+          setCancelQueueStatus("请先登录", "bad");
+          return;
+        }
+
+        $("cancel_queue_submit").disabled = true;
+        setCancelQueueStatus("请求中...", "");
+        $("output").textContent = "{}";
+
+        try {
+          const resp = await fetch("/api/v1/match/queue/cancel", {
+            method: "POST",
+            headers: {
+              "Authorization": token.startsWith("Bearer ") ? token : "Bearer " + token,
+            },
+          });
+
+          const text = await resp.text();
+          let data;
+          try { data = JSON.parse(text); } catch (e) { data = { raw: text }; }
+
+          $("output").textContent = pretty(data);
+          if (resp.ok && data && data.code === 0) {
+            setCancelQueueStatus("取消成功", "ok");
+          } else {
+            setCancelQueueStatus("取消失败", "bad");
+          }
+        } catch (e) {
+          $("output").textContent = pretty({ error: String(e) });
+          setCancelQueueStatus("请求异常", "bad");
+        } finally {
+          $("cancel_queue_submit").disabled = false;
+        }
+      }
+
       $("submit").addEventListener("click", register);
       $("fill").addEventListener("click", () => {
         const suffix = Math.random().toString(16).slice(2, 8);
@@ -391,6 +569,10 @@
         $("token").value = "";
         setMeStatus("", "");
       });
+
+      $("join_queue_submit").addEventListener("click", joinQueue);
+      $("status_queue_submit").addEventListener("click", statusQueue);
+      $("cancel_queue_submit").addEventListener("click", cancelQueue);
     </script>
   </body>
 </html>

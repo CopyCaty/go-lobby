@@ -60,9 +60,65 @@ func (h *MatchQueueHandler) Join(c *gin.Context) {
 }
 
 func (h *MatchQueueHandler) Status(c *gin.Context) {
-
+	rawUserID, exist := c.Get(middleware.CtxUserIDKey)
+	if !exist {
+		c.JSON(http.StatusUnauthorized, gin.H{
+			"code":    401,
+			"message": "未登录",
+		})
+		return
+	}
+	userID, ok := rawUserID.(int64)
+	if !ok {
+		c.JSON(http.StatusUnauthorized, gin.H{
+			"code":    401,
+			"message": "用户上下文类型错误",
+		})
+		return
+	}
+	res, err := h.matchQueueService.Status(c.Request.Context(), userID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"code":    500,
+			"message": "取消匹配失败",
+		})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{
+		"code":    0,
+		"message": res.Status,
+		"data":    res,
+	})
 }
 
 func (h *MatchQueueHandler) Cancel(c *gin.Context) {
-
+	rawUserID, exist := c.Get(middleware.CtxUserIDKey)
+	if !exist {
+		c.JSON(http.StatusUnauthorized, gin.H{
+			"code":    401,
+			"message": "未登录",
+		})
+		return
+	}
+	userID, ok := rawUserID.(int64)
+	if !ok {
+		c.JSON(http.StatusUnauthorized, gin.H{
+			"code":    401,
+			"message": "用户上下文类型错误",
+		})
+		return
+	}
+	res, err := h.matchQueueService.Cancel(c.Request.Context(), userID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"code":    500,
+			"message": "取消匹配失败",
+		})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{
+		"code":    0,
+		"message": "取消匹配成功",
+		"data":    res,
+	})
 }
