@@ -45,8 +45,9 @@ func main() {
 	userRepo := repository.NewUserRepository(db)
 	userService := service.NewUserService(userRepo, jwtManager)
 	userHandler := handler.NewUserHandler(userService)
+	roomHub := ws.NewRoomHub()
 	roomService := service.NewRoomService()
-	roomHandler := handler.NewRoomHandler(roomService)
+	roomHandler := handler.NewRoomHandler(roomService, roomHub)
 	matchRepo := repository.NewMatchRepository(db)
 	matchService := service.NewMatchService(matchRepo)
 
@@ -54,8 +55,6 @@ func main() {
 	matchQueueService := service.NewMatchQueueService(matchService, roomService, matchQueueRepo)
 	matchQueueHandler := handler.NewMatchQueueHandler(matchQueueService)
 	matchHandler := handler.NewMatchHandler(matchService)
-
-	roomHub := ws.NewRoomHub()
 
 	r := gin.Default()
 
