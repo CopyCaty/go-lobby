@@ -57,7 +57,7 @@ func (s *RoomService) GetRoom(roomID string, userID int64) (*res.RoomInfoRespons
 	if !exists {
 		return nil, fmt.Errorf("room with ID %s not found", roomID)
 	}
-	if !s.checkUserInRoom(room, userID) {
+	if s.rooms[roomID].Players[userID] == nil {
 		return nil, fmt.Errorf("user %d is not in room %s", userID, roomID)
 	}
 	return &res.RoomInfoResponse{
@@ -70,8 +70,15 @@ func (s *RoomService) GetRoom(roomID string, userID int64) (*res.RoomInfoRespons
 	}, nil
 }
 
-func (s *RoomService) checkUserInRoom(room *model.Room, userID int64) bool {
-	_, exists := room.Players[userID]
+func (s *RoomService) CheckUserInRoom(roomID string, userID int64) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	room, exists := s.rooms[roomID]
+	if !exists {
+		return false
+	}
+	_, exists = room.Players[userID]
 	return exists
 }
 

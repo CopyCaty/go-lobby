@@ -9,6 +9,7 @@ import (
 	"go-lobby/internal/middleware"
 	"go-lobby/internal/repository"
 	"go-lobby/internal/service"
+	"go-lobby/internal/ws"
 	"log"
 	"time"
 
@@ -54,6 +55,8 @@ func main() {
 	matchQueueHandler := handler.NewMatchQueueHandler(matchQueueService)
 	matchHandler := handler.NewMatchHandler(matchService)
 
+	roomHub := ws.NewRoomHub()
+
 	r := gin.Default()
 
 	// Static test page for local manual testing.
@@ -68,6 +71,12 @@ func main() {
 		authGroup := v1.Group("/")
 		authGroup.Use(middleware.AuthMiddleware(jwtManager))
 		{
+			wsGroup := authGroup.Group("/ws")
+			{
+				wsHandler := handler.NewWSHandler(roomService, roomHub)
+				wsGroup.GET("/room/:id", wsHandler.JoinRoom)
+			}
+
 			authGroup.GET("/me", userHandler.Me)
 
 			matchGroup := authGroup.Group("/match")

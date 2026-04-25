@@ -3,7 +3,7 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>go-lobby 玩家大厅</title>
+    <title>go-lobby 接口测试</title>
     <link rel="stylesheet" href="/static/app.css" />
   </head>
   <body>
@@ -11,17 +11,17 @@
       <header>
         <div>
           <span class="badge ok">go-lobby MVP</span>
-          <h1>玩家大厅控制台</h1>
-          <p>按真实业务流程测试：账号登录、加入匹配、创建对局、进入房间、玩家准备。</p>
+          <h1>接口测试控制台</h1>
+          <p>用于测试注册、登录、匹配队列、房间、对局结果和房间 WebSocket。</p>
         </div>
         <div class="card session-card">
           <div class="card-body">
             <strong id="session_user">未登录</strong>
-            <p id="session_hint" class="session-hint">请先登录玩家账号</p>
-            <textarea id="token" placeholder="登录后自动保存 token，也可手动粘贴"></textarea>
+            <p id="session_hint" class="session-hint">请先登录，受保护接口会使用 token。</p>
+            <textarea id="token" placeholder="JWT token"></textarea>
             <div class="actions">
               <button id="me_submit" class="secondary" type="button">刷新用户</button>
-              <button id="clear_token" class="danger" type="button">退出</button>
+              <button id="clear_token" class="danger" type="button">清空 Token</button>
             </div>
           </div>
         </div>
@@ -43,27 +43,27 @@
           <section class="card">
             <div class="card-head">
               <h2>账号入口</h2>
-              <p>注册测试玩家，或直接登录已有玩家。登录成功后会持久化 token。</p>
+              <p>创建测试玩家，或直接登录已有玩家。</p>
             </div>
             <div class="card-body">
               <div class="row">
                 <div>
                   <label for="user_name">用户名</label>
-                  <input id="user_name" autocomplete="username" placeholder="至少 6 位" />
+                  <input id="user_name" autocomplete="username" placeholder="player_xxxxxx" />
                 </div>
                 <div>
                   <label for="nickname">昵称</label>
-                  <input id="nickname" autocomplete="nickname" placeholder="至少 6 位" />
+                  <input id="nickname" autocomplete="nickname" placeholder="玩家_xxxxxx" />
                 </div>
               </div>
               <div class="row form-row">
                 <div>
                   <label for="password">注册密码</label>
-                  <input id="password" type="password" autocomplete="new-password" placeholder="至少 8 位" />
+                  <input id="password" type="password" autocomplete="new-password" placeholder="password_xxxxxx" />
                 </div>
                 <div>
                   <label for="login_password">登录密码</label>
-                  <input id="login_password" type="password" autocomplete="current-password" placeholder="默认同注册密码" />
+                  <input id="login_password" type="password" autocomplete="current-password" />
                 </div>
               </div>
               <div class="actions">
@@ -77,16 +77,16 @@
 
           <section class="card">
             <div class="card-head">
-              <h2>匹配大厅</h2>
-              <p>加入匹配后，如果人数凑齐，应返回 matched、match_id、room_id 和 teams。</p>
+              <h2>匹配队列</h2>
+              <p>加入匹配、刷新匹配状态，或取消当前匹配。</p>
             </div>
             <div class="card-body">
               <div class="row">
                 <div>
                   <label for="queue_mode">匹配模式</label>
                   <select id="queue_mode">
-                    <option value="1v1">1v1 快速对战</option>
-                    <option value="2v2">2v2 组队对战</option>
+                    <option value="1v1">1v1</option>
+                    <option value="2v2">2v2</option>
                   </select>
                 </div>
                 <div>
@@ -96,7 +96,7 @@
               </div>
               <div class="actions">
                 <button id="join_queue_submit" type="button">加入匹配</button>
-                <button id="status_queue_submit" class="secondary" type="button">刷新匹配状态</button>
+                <button id="status_queue_submit" class="secondary" type="button">刷新状态</button>
                 <button id="cancel_queue_submit" class="danger" type="button">取消匹配</button>
                 <span id="queue_status" class="badge">未入队</span>
               </div>
@@ -105,14 +105,14 @@
 
           <section class="card">
             <div class="card-head">
-              <h2>房间详情与准备</h2>
-              <p>匹配成功后会自动填入 room_id；点击准备后会自动刷新房间状态。</p>
+              <h2>房间状态</h2>
+              <p>查询房间状态，并将当前玩家标记为已准备。</p>
             </div>
             <div class="card-body">
               <div class="row">
                 <div>
                   <label for="room_id">房间 ID</label>
-                  <input id="room_id" placeholder="例如 r_..." />
+                  <input id="room_id" placeholder="r_..." />
                 </div>
                 <div>
                   <label for="room_endpoint">房间接口</label>
@@ -131,14 +131,45 @@
 
           <section class="card">
             <div class="card-head">
+              <h2>房间 WebSocket</h2>
+              <p>连接房间 WebSocket，查看服务端推送和消息收发。</p>
+            </div>
+            <div class="card-body">
+              <div class="row">
+                <div>
+                  <label for="ws_url">WebSocket 地址</label>
+                  <input id="ws_url" value="/api/v1/ws/room/" />
+                </div>
+                <div>
+                  <label for="ws_message">发送消息</label>
+                  <input id="ws_message" value='{"type":"ping"}' />
+                </div>
+              </div>
+              <label class="check-row">
+                <input id="ws_append_token" type="checkbox" checked />
+                <span>把 token 追加到查询参数</span>
+              </label>
+              <div class="actions">
+                <button id="ws_connect_submit" type="button">连接 WS</button>
+                <button id="ws_send_submit" class="secondary" type="button">发送</button>
+                <button id="ws_disconnect_submit" class="danger" type="button">断开</button>
+                <button id="ws_use_current_room" class="secondary" type="button">使用当前房间</button>
+                <span id="ws_status" class="badge">未连接</span>
+              </div>
+              <div id="ws_log" class="log ws-log"></div>
+            </div>
+          </section>
+
+          <section class="card">
+            <div class="card-head">
               <h2>对局结果</h2>
-              <p>房间进入 playing 后，可提交胜方队伍并查询持久化对局详情。</p>
+              <p>查询对局详情，或提交胜方队伍。</p>
             </div>
             <div class="card-body">
               <div class="row">
                 <div>
                   <label for="match_id">对局 ID</label>
-                  <input id="match_id" placeholder="例如 1001" />
+                  <input id="match_id" placeholder="1001" />
                 </div>
                 <div>
                   <label for="winner_team_no">胜方队伍</label>
@@ -162,7 +193,7 @@
           <section class="card">
             <div class="card-head">
               <h2>响应数据</h2>
-              <p>展示最近一次请求和响应，便于核对字段。</p>
+              <p>展示最近一次 HTTP 请求和响应。</p>
             </div>
             <div class="card-body">
               <pre><code id="output">{}</code></pre>
@@ -172,7 +203,7 @@
           <section class="card">
             <div class="card-head">
               <h2>操作日志</h2>
-              <p>记录最近测试动作。</p>
+              <p>记录最近的测试动作。</p>
             </div>
             <div class="card-body">
               <div id="log" class="log"></div>

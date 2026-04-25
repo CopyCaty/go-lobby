@@ -15,31 +15,11 @@ const (
 
 func AuthMiddleware(jwtManager *auth.JWTManager) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		authHeader := c.GetHeader("Authorization")
-		if authHeader == "" {
-			c.JSON(http.StatusUnauthorized, gin.H{
-				"code":    401,
-				"message": "未登录",
-			})
-			c.Abort()
-			return
-		}
-
-		const prefix = "Bearer "
-		if !strings.HasPrefix(authHeader, prefix) {
-			c.JSON(http.StatusUnauthorized, gin.H{
-				"code":    401,
-				"message": "Authorization 格式错误",
-			})
-			c.Abort()
-			return
-		}
-
-		tokenString := strings.TrimSpace(strings.TrimPrefix(authHeader, prefix))
+		tokenString := extractToken(c)
 		if tokenString == "" {
 			c.JSON(http.StatusUnauthorized, gin.H{
 				"code":    401,
-				"message": "Token 不能为空",
+				"message": "未登录",
 			})
 			c.Abort()
 			return
@@ -59,4 +39,17 @@ func AuthMiddleware(jwtManager *auth.JWTManager) gin.HandlerFunc {
 		c.Set(CtxUserNameKey, claims.UserName)
 		c.Next()
 	}
+}
+
+func extractToken(c *gin.Context) string {
+	authHeader := c.GetHeader("Authorization")
+	const prefix = "Bearer "
+	if strings.HasPrefix(authHeader, prefix) {
+		return strings.TrimSpace(strings.TrimPrefix(authHeader, prefix))
+	}
+	token, err := c.Cookie("access_token")
+	if err != nil {
+		return ""
+	}
+	return token
 }

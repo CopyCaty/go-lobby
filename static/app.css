@@ -148,6 +148,18 @@ textarea {
   resize: vertical;
 }
 
+.check-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 12px;
+  color: var(--muted);
+}
+
+.check-row input {
+  width: auto;
+}
+
 input:focus,
 select:focus,
 textarea:focus {
@@ -273,6 +285,11 @@ pre {
   gap: 8px;
   max-height: 240px;
   overflow: auto;
+}
+
+.ws-log {
+  margin-top: 14px;
+  max-height: 180px;
 }
 
 .log-item {

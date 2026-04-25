@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"fmt"
 	"go-lobby/internal/middleware"
 	"go-lobby/internal/service"
 	"net/http"
@@ -43,6 +44,7 @@ func (h *RoomHandler) GetRoom(c *gin.Context) {
 }
 
 func (h *RoomHandler) Ready(c *gin.Context) {
+	fmt.Println("Ready endpoint called")
 	roomID := c.Param("id")
 	rawUserID, exists := c.Get(middleware.CtxUserIDKey)
 	if !exists {

@@ -66,6 +66,15 @@ func (h *UserHandler) LoginUser(c *gin.Context) {
 		})
 		return
 	}
+	c.SetCookie(
+		"access_token",
+		resp.Token,
+		int(resp.ExpiresIn),
+		"/",
+		"",
+		false,
+		true,
+	)
 	c.JSON(http.StatusOK, gin.H{
 		"code":    0,
 		"message": "ok",
