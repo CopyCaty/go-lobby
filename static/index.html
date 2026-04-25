@@ -4,224 +4,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>go-lobby 玩家大厅</title>
-    <style>
-      :root {
-        color-scheme: dark;
-        --bg: #08111f;
-        --card: rgba(15, 23, 42, 0.92);
-        --line: rgba(148, 163, 184, 0.22);
-        --text: #e5edf7;
-        --muted: #94a3b8;
-        --accent: #60a5fa;
-        --cyan: #22d3ee;
-        --ok: #34d399;
-        --warn: #fbbf24;
-        --bad: #fb7185;
-      }
-
-      * { box-sizing: border-box; }
-      body {
-        margin: 0;
-        min-height: 100vh;
-        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC",
-          "Microsoft YaHei", Arial, sans-serif;
-        color: var(--text);
-        background:
-          radial-gradient(900px 520px at 10% 0%, rgba(37, 99, 235, 0.28), transparent 60%),
-          radial-gradient(700px 420px at 92% 10%, rgba(34, 211, 238, 0.18), transparent 56%),
-          var(--bg);
-      }
-
-      button, input, select, textarea { font: inherit; }
-      .layout {
-        width: min(1180px, calc(100% - 32px));
-        margin: 0 auto;
-        padding: 28px 0 44px;
-      }
-
-      header {
-        display: flex;
-        justify-content: space-between;
-        gap: 18px;
-        align-items: flex-start;
-        margin-bottom: 18px;
-      }
-
-      h1, h2, h3, p { margin-top: 0; }
-      h1 { font-size: 28px; margin-bottom: 8px; letter-spacing: -0.03em; }
-      h2 { font-size: 16px; margin-bottom: 6px; }
-      p { color: var(--muted); line-height: 1.55; }
-
-      .grid {
-        display: grid;
-        grid-template-columns: minmax(0, 1.1fr) minmax(360px, 0.9fr);
-        gap: 16px;
-        align-items: start;
-      }
-
-      .stack { display: grid; gap: 16px; }
-      .card {
-        border: 1px solid var(--line);
-        border-radius: 20px;
-        background: var(--card);
-        box-shadow: 0 24px 70px rgba(0, 0, 0, 0.28);
-        overflow: hidden;
-      }
-
-      .card-head {
-        padding: 16px 18px 12px;
-        border-bottom: 1px solid var(--line);
-        background: linear-gradient(180deg, rgba(30, 41, 59, 0.72), transparent);
-      }
-
-      .card-body { padding: 18px; }
-      .row {
-        display: grid;
-        grid-template-columns: 1fr 1fr;
-        gap: 12px;
-      }
-
-      label {
-        display: block;
-        color: var(--muted);
-        font-size: 12px;
-        margin-bottom: 6px;
-      }
-
-      input, select, textarea {
-        width: 100%;
-        border: 1px solid rgba(148, 163, 184, 0.25);
-        border-radius: 12px;
-        background: rgba(2, 6, 23, 0.5);
-        color: var(--text);
-        padding: 10px 11px;
-        outline: none;
-      }
-
-      textarea { min-height: 82px; resize: vertical; }
-      input:focus, select:focus, textarea:focus {
-        border-color: rgba(96, 165, 250, 0.75);
-        box-shadow: 0 0 0 4px rgba(96, 165, 250, 0.13);
-      }
-
-      .actions {
-        display: flex;
-        flex-wrap: wrap;
-        gap: 10px;
-        align-items: center;
-        margin-top: 14px;
-      }
-
-      button {
-        border: 1px solid rgba(96, 165, 250, 0.45);
-        border-radius: 12px;
-        padding: 10px 13px;
-        color: #031124;
-        background: linear-gradient(135deg, var(--accent), var(--cyan));
-        font-weight: 800;
-        cursor: pointer;
-      }
-
-      button.secondary {
-        color: var(--text);
-        background: rgba(15, 23, 42, 0.72);
-        border-color: rgba(148, 163, 184, 0.28);
-      }
-
-      button.danger {
-        color: #ffe4e6;
-        background: rgba(244, 63, 94, 0.16);
-        border-color: rgba(244, 63, 94, 0.35);
-      }
-
-      button:disabled { opacity: 0.55; cursor: not-allowed; }
-
-      .badge {
-        display: inline-flex;
-        align-items: center;
-        border-radius: 999px;
-        padding: 5px 10px;
-        font-size: 12px;
-        color: var(--muted);
-        background: rgba(148, 163, 184, 0.12);
-        border: 1px solid rgba(148, 163, 184, 0.18);
-      }
-
-      .badge.ok { color: #bbf7d0; background: rgba(34, 197, 94, 0.13); border-color: rgba(34, 197, 94, 0.28); }
-      .badge.warn { color: #fde68a; background: rgba(245, 158, 11, 0.13); border-color: rgba(245, 158, 11, 0.28); }
-      .badge.bad { color: #fecdd3; background: rgba(244, 63, 94, 0.13); border-color: rgba(244, 63, 94, 0.28); }
-
-      .metrics {
-        display: grid;
-        grid-template-columns: repeat(4, 1fr);
-        gap: 10px;
-      }
-
-      .metric, .player {
-        border: 1px solid rgba(148, 163, 184, 0.16);
-        border-radius: 16px;
-        background: rgba(2, 6, 23, 0.38);
-        padding: 12px;
-      }
-
-      .metric span, .player span {
-        display: block;
-        color: var(--muted);
-        font-size: 12px;
-        margin-bottom: 6px;
-      }
-
-      .metric strong, .player strong {
-        display: block;
-        font-size: 15px;
-        word-break: break-all;
-      }
-
-      .players {
-        display: grid;
-        grid-template-columns: repeat(2, 1fr);
-        gap: 10px;
-        margin-top: 14px;
-      }
-
-      pre {
-        margin: 0;
-        max-height: 420px;
-        overflow: auto;
-        padding: 13px;
-        border-radius: 14px;
-        background: rgba(2, 6, 23, 0.68);
-        border: 1px solid rgba(148, 163, 184, 0.16);
-        color: #dbeafe;
-        font-size: 12px;
-        line-height: 1.5;
-      }
-
-      .log {
-        display: grid;
-        gap: 8px;
-        max-height: 240px;
-        overflow: auto;
-      }
-
-      .log-item {
-        padding: 9px 10px;
-        border-radius: 13px;
-        border: 1px solid rgba(148, 163, 184, 0.15);
-        background: rgba(2, 6, 23, 0.32);
-        color: var(--muted);
-        font-size: 12px;
-      }
-
-      @media (max-width: 980px) {
-        header, .grid { grid-template-columns: 1fr; display: grid; }
-        .metrics { grid-template-columns: 1fr 1fr; }
-      }
-
-      @media (max-width: 620px) {
-        .row, .metrics, .players { grid-template-columns: 1fr; }
-      }
-    </style>
+    <link rel="stylesheet" href="/static/app.css" />
   </head>
   <body>
     <div class="layout">
@@ -231,10 +14,10 @@
           <h1>玩家大厅控制台</h1>
           <p>按真实业务流程测试：账号登录、加入匹配、创建对局、进入房间、玩家准备。</p>
         </div>
-        <div class="card" style="min-width: 320px">
+        <div class="card session-card">
           <div class="card-body">
             <strong id="session_user">未登录</strong>
-            <p id="session_hint" style="margin: 6px 0 10px">请先登录玩家账号</p>
+            <p id="session_hint" class="session-hint">请先登录玩家账号</p>
             <textarea id="token" placeholder="登录后自动保存 token，也可手动粘贴"></textarea>
             <div class="actions">
               <button id="me_submit" class="secondary" type="button">刷新用户</button>
@@ -244,7 +27,7 @@
         </div>
       </header>
 
-      <section class="card" style="margin-bottom: 16px">
+      <section class="card summary-card">
         <div class="card-body">
           <div class="metrics">
             <div class="metric"><span>队列状态</span><strong id="metric_status">-</strong></div>
@@ -273,7 +56,7 @@
                   <input id="nickname" autocomplete="nickname" placeholder="至少 6 位" />
                 </div>
               </div>
-              <div class="row" style="margin-top: 12px">
+              <div class="row form-row">
                 <div>
                   <label for="password">注册密码</label>
                   <input id="password" type="password" autocomplete="new-password" placeholder="至少 8 位" />
@@ -323,7 +106,7 @@
           <section class="card">
             <div class="card-head">
               <h2>房间详情与准备</h2>
-              <p>匹配成功后会自动填入 room_id；点击准备后再次查询房间可看到玩家 ready 状态。</p>
+              <p>匹配成功后会自动填入 room_id；点击准备后会自动刷新房间状态。</p>
             </div>
             <div class="card-body">
               <div class="row">
@@ -343,6 +126,34 @@
                 <span id="room_status" class="badge">未查询</span>
               </div>
               <div id="room_players" class="players"></div>
+            </div>
+          </section>
+
+          <section class="card">
+            <div class="card-head">
+              <h2>对局结果</h2>
+              <p>房间进入 playing 后，可提交胜方队伍并查询持久化对局详情。</p>
+            </div>
+            <div class="card-body">
+              <div class="row">
+                <div>
+                  <label for="match_id">对局 ID</label>
+                  <input id="match_id" placeholder="例如 1001" />
+                </div>
+                <div>
+                  <label for="winner_team_no">胜方队伍</label>
+                  <select id="winner_team_no">
+                    <option value="0">队伍 0</option>
+                    <option value="1">队伍 1</option>
+                  </select>
+                </div>
+              </div>
+              <div class="actions">
+                <button id="match_submit" type="button">查询对局</button>
+                <button id="match_result_submit" type="button">提交结果</button>
+                <button id="use_current_match" class="secondary" type="button">使用当前对局</button>
+                <span id="match_status" class="badge">未查询</span>
+              </div>
             </div>
           </section>
         </main>
@@ -371,312 +182,6 @@
       </div>
     </div>
 
-    <script>
-      const $ = (id) => document.getElementById(id);
-      const storageKey = "go_lobby_token";
-
-      const appState = {
-        token: localStorage.getItem(storageKey) || "",
-        user: null,
-        queue: null,
-        room: null,
-      };
-
-      function pretty(value) {
-        try {
-          return JSON.stringify(value, null, 2);
-        } catch (error) {
-          return String(value);
-        }
-      }
-
-      function setOutput(value) {
-        $("output").textContent = pretty(value);
-      }
-
-      function setBadge(id, text, kind = "") {
-        const el = $(id);
-        el.textContent = text;
-        el.className = "badge" + (kind ? " " + kind : "");
-      }
-
-      function addLog(title, detail = "") {
-        const el = document.createElement("div");
-        el.className = "log-item";
-        el.textContent = `${new Date().toLocaleTimeString()} · ${title}${detail ? " · " + detail : ""}`;
-        $("log").prepend(el);
-      }
-
-      function syncToken() {
-        const token = $("token").value.trim();
-        appState.token = token;
-        if (token) {
-          localStorage.setItem(storageKey, token);
-        } else {
-          localStorage.removeItem(storageKey);
-        }
-      }
-
-      function authHeaders(extra = {}) {
-        syncToken();
-        const headers = { ...extra };
-        if (appState.token) {
-          headers.Authorization = appState.token.startsWith("Bearer ")
-            ? appState.token
-            : "Bearer " + appState.token;
-        }
-        return headers;
-      }
-
-      async function apiRequest(label, url, options = {}) {
-        const resp = await fetch(url, options);
-        const text = await resp.text();
-        let data;
-        try {
-          data = JSON.parse(text);
-        } catch (error) {
-          data = { raw: text };
-        }
-        setOutput({ request: { label, url, method: options.method || "GET" }, response: data });
-        if (!resp.ok || data.code !== 0) {
-          throw new Error(data.message || `HTTP ${resp.status}`);
-        }
-        return data;
-      }
-
-      function syncQueueView(data) {
-        const payload = data && data.data ? data.data : data;
-        if (!payload) return;
-        appState.queue = payload;
-
-        const status = payload.status || payload.queue_status || "-";
-        const matchID = payload.match_id || "-";
-        const roomID = payload.room_id || "-";
-
-        $("metric_status").textContent = status;
-        $("metric_match").textContent = matchID;
-        $("metric_room").textContent = roomID;
-        if (payload.room_id) $("room_id").value = payload.room_id;
-
-        const kind = status === "matched" ? "ok" : status === "matching" ? "warn" : "";
-        setBadge("queue_status", status, kind);
-      }
-
-      function renderRoomPlayers(room) {
-        const container = $("room_players");
-        container.innerHTML = "";
-        const players = room.players || room.Players || {};
-        Object.values(players).forEach((player) => {
-          const card = document.createElement("div");
-          card.className = "player";
-          const userID = player.user_id ?? player.UserID ?? "-";
-          const teamNo = player.team_no ?? player.TeamNo ?? "-";
-          const ready = player.ready ?? player.Ready ?? false;
-          const online = player.online ?? player.Online ?? false;
-          card.innerHTML = `
-            <span>玩家 ${userID}</span>
-            <strong>队伍 ${teamNo} · ${ready ? "已准备" : "未准备"}</strong>
-            <span>${online ? "在线" : "离线"}</span>
-          `;
-          container.appendChild(card);
-        });
-      }
-
-      function syncRoomView(data) {
-        const room = data && data.data ? data.data : data;
-        if (!room) return;
-        appState.room = room;
-
-        $("metric_room").textContent = room.id || room.room_id || "-";
-        $("metric_match").textContent = room.match_id || "-";
-        $("metric_room_status").textContent = room.status || "-";
-        renderRoomPlayers(room);
-
-        const kind = room.status === "playing" ? "ok" : room.status === "waiting" ? "warn" : "";
-        setBadge("room_status", room.status || "已获取", kind);
-      }
-
-      async function registerUser() {
-        setBadge("account_status", "注册中", "warn");
-        const payload = {
-          user_name: $("user_name").value.trim(),
-          nickname: $("nickname").value.trim(),
-          password: $("password").value,
-        };
-        const data = await apiRequest("注册", "/api/v1/users/register", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(payload),
-        });
-        $("login_password").value = $("password").value;
-        setBadge("account_status", "注册成功", "ok");
-        addLog("注册成功", payload.user_name);
-        return data;
-      }
-
-      async function loginUser() {
-        setBadge("account_status", "登录中", "warn");
-        const payload = {
-          user_name: $("user_name").value.trim(),
-          password: $("login_password").value || $("password").value,
-        };
-        const data = await apiRequest("登录", "/api/v1/users/login", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(payload),
-        });
-        const user = data.data || {};
-        $("token").value = user.token || "";
-        syncToken();
-        appState.user = user;
-        $("session_user").textContent = user.nickname || user.user_name || payload.user_name;
-        $("session_hint").textContent = `user_id=${user.user_id || "-"} · ${user.user_name || payload.user_name}`;
-        setBadge("account_status", "登录成功", "ok");
-        addLog("登录成功", `user_id=${user.user_id || "-"}`);
-      }
-
-      async function refreshMe() {
-        const data = await apiRequest("当前用户", "/api/v1/me", {
-          method: "GET",
-          headers: authHeaders(),
-        });
-        const user = data.data || {};
-        appState.user = { ...appState.user, ...user };
-        $("session_user").textContent = user.nickname || user.user_name || "已登录玩家";
-        $("session_hint").textContent = user.user_name ? `user_name=${user.user_name}` : "token 有效";
-        addLog("刷新用户", user.user_name || "成功");
-      }
-
-      async function joinQueue() {
-        setBadge("queue_status", "入队中", "warn");
-        const mode = $("queue_mode").value;
-        const data = await apiRequest("加入匹配", "/api/v1/match/queue/join", {
-          method: "POST",
-          headers: authHeaders({ "Content-Type": "application/json" }),
-          body: JSON.stringify({ mode }),
-        });
-        syncQueueView(data);
-        addLog("加入匹配", mode);
-      }
-
-      async function refreshQueueStatus() {
-        const endpoint = $("status_endpoint").value.trim() || "/api/v1/match/queue/status";
-        const data = await apiRequest("匹配状态", endpoint, {
-          method: "GET",
-          headers: authHeaders(),
-        });
-        syncQueueView(data);
-        addLog("刷新匹配状态", data.message || "成功");
-      }
-
-      async function cancelQueue() {
-        const data = await apiRequest("取消匹配", "/api/v1/match/queue/cancel", {
-          method: "POST",
-          headers: authHeaders(),
-        });
-        syncQueueView(data);
-        addLog("取消匹配", data.message || "成功");
-      }
-
-      function roomBaseURL() {
-        return $("room_endpoint").value.trim() || "/api/v1/room/";
-      }
-
-      function roomURL(roomID, suffix = "") {
-        const base = roomBaseURL();
-        const path = base.endsWith("/") ? base + encodeURIComponent(roomID) : base + "/" + encodeURIComponent(roomID);
-        return path + suffix;
-      }
-
-      async function getRoom() {
-        const roomID = $("room_id").value.trim();
-        if (!roomID) throw new Error("请先填写 room_id，或匹配成功后再查询房间");
-        setBadge("room_status", "查询中", "warn");
-        const data = await apiRequest("房间详情", roomURL(roomID), {
-          method: "GET",
-          headers: authHeaders(),
-        });
-        syncRoomView(data);
-        addLog("查询房间", roomID);
-      }
-
-      async function readyRoom() {
-        const roomID = $("room_id").value.trim();
-        if (!roomID) throw new Error("请先填写 room_id，或匹配成功后再准备");
-        setBadge("room_status", "准备中", "warn");
-        const data = await apiRequest("玩家准备", roomURL(roomID, "/ready"), {
-          method: "POST",
-          headers: authHeaders(),
-        });
-        addLog("玩家准备", roomID);
-        setBadge("room_status", "已准备", "ok");
-        await getRoom();
-        return data;
-      }
-
-      function fillSample() {
-        const suffix = Math.random().toString(16).slice(2, 8);
-        $("user_name").value = "player_" + suffix;
-        $("nickname").value = "玩家_" + suffix;
-        $("password").value = "password_" + suffix;
-        $("login_password").value = "password_" + suffix;
-        setBadge("account_status", "已生成");
-      }
-
-      function useCurrentRoom() {
-        const roomID = appState.queue && appState.queue.room_id ? appState.queue.room_id : "";
-        if (roomID) {
-          $("room_id").value = roomID;
-          addLog("已填入当前房间", roomID);
-        } else {
-          setOutput({ error: "当前没有 room_id，请先匹配成功或手动填写" });
-        }
-      }
-
-      function bind(id, fn) {
-        $(id).addEventListener("click", async () => {
-          const button = $(id);
-          button.disabled = true;
-          try {
-            await fn();
-          } catch (error) {
-            const message = String(error.message || error);
-            setOutput({ error: message });
-            addLog("操作失败", message);
-            if (id.includes("queue")) setBadge("queue_status", "失败", "bad");
-            if (id.includes("room")) setBadge("room_status", "失败", "bad");
-            if (id.includes("login") || id.includes("register")) setBadge("account_status", "失败", "bad");
-          } finally {
-            button.disabled = false;
-          }
-        });
-      }
-
-      $("token").value = appState.token;
-      if (appState.token) {
-        $("session_user").textContent = "已保存 token";
-        $("session_hint").textContent = "可点击刷新用户验证 token";
-      }
-
-      bind("fill", fillSample);
-      bind("register_submit", registerUser);
-      bind("login_submit", loginUser);
-      bind("me_submit", refreshMe);
-      bind("join_queue_submit", joinQueue);
-      bind("status_queue_submit", refreshQueueStatus);
-      bind("cancel_queue_submit", cancelQueue);
-      bind("room_submit", getRoom);
-      bind("room_ready_submit", readyRoom);
-      bind("use_current_room", useCurrentRoom);
-      $("clear_token").addEventListener("click", () => {
-        $("token").value = "";
-        syncToken();
-        appState.user = null;
-        $("session_user").textContent = "未登录";
-        $("session_hint").textContent = "请先登录玩家账号";
-        setOutput({});
-        addLog("退出登录", "本地 token 已清空");
-      });
-    </script>
+    <script src="/static/app.js"></script>
   </body>
 </html>

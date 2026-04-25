@@ -3,7 +3,7 @@ server:
 
 database:
   type: "mysql"
-  dsn: "root:123456@tcp(127.0.0.1:3305)/go_lobby?parseTime=true&loc=Local"
+  dsn: "root:123456@tcp(localhost:3306)/go_lobby?parseTime=true&loc=Local"
 jwt:
   secret: "go-lobby-secret"
   expire_sec: 7200

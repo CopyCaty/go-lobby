@@ -45,7 +45,6 @@ func (h *RoomHandler) GetRoom(c *gin.Context) {
 func (h *RoomHandler) Ready(c *gin.Context) {
 	roomID := c.Param("id")
 	rawUserID, exists := c.Get(middleware.CtxUserIDKey)
-	userID := rawUserID.(int64)
 	if !exists {
 		c.JSON(http.StatusUnauthorized, gin.H{
 			"code":    401,
@@ -53,6 +52,7 @@ func (h *RoomHandler) Ready(c *gin.Context) {
 		})
 		return
 	}
+	userID := rawUserID.(int64)
 	err := h.service.ReadyPlayer(roomID, userID)
 	if err != nil {
 		c.JSON(http.StatusNotFound, gin.H{

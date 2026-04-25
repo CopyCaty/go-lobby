@@ -41,7 +41,8 @@ func main() {
 	matchRepo := repository.NewMatchRepository(db)
 	matchService := service.NewMatchService(matchRepo)
 	matchQueueService := service.NewMatchQueueService(matchService, roomService)
-	matchHandler := handler.NewMatchQueueHandler(matchQueueService)
+	matchQueueHandler := handler.NewMatchQueueHandler(matchQueueService)
+	matchHandler := handler.NewMatchHandler(matchService)
 
 	r := gin.Default()
 
@@ -63,10 +64,12 @@ func main() {
 			{
 				queueGroup := matchGroup.Group("/queue")
 				{
-					queueGroup.POST("/join", matchHandler.Join)
-					queueGroup.GET("/status", matchHandler.Status)
-					queueGroup.POST("/cancel", matchHandler.Cancel)
+					queueGroup.POST("/join", matchQueueHandler.Join)
+					queueGroup.GET("/status", matchQueueHandler.Status)
+					queueGroup.POST("/cancel", matchQueueHandler.Cancel)
 				}
+				matchGroup.POST("/result", matchHandler.SetMatchResult)
+				matchGroup.GET("/:id", matchHandler.GetMatchInfo)
 			}
 			roomGroup := authGroup.Group("/room")
 			{

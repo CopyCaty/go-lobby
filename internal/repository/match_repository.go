@@ -81,3 +81,19 @@ func (r *MatchRepository) AddMatchPlayer(ctx context.Context, tx *sqlx.Tx, match
 	}
 	return nil
 }
+
+func (r *MatchRepository) GetMatchPlayers(ctx context.Context, matchID int64) ([]*model.MatchPlayer, error) {
+	var players []*model.MatchPlayer
+	err := r.db.SelectContext(ctx, &players, `
+		SELECT match_id, user_id, team_no
+		FROM gl_match_player
+		WHERE match_id = ?
+	`, matchID)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return players, nil
+}
