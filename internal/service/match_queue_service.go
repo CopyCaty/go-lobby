@@ -7,25 +7,24 @@ import (
 	"go-lobby/internal/dto/req"
 	"go-lobby/internal/dto/res"
 	"go-lobby/internal/matchqueue"
+	"go-lobby/internal/repository"
 	"strings"
 	"sync"
 	"time"
 )
 
 type MatchQueueService struct {
-	mu     sync.Mutex
-	queues map[string][]*matchqueue.QueueEntry
-	users  map[int64]*matchqueue.QueueUserState
-	rs     *RoomService
-	ms     *MatchService
+	mu   sync.Mutex
+	repo *repository.MatchQueueRepository
+	rs   *RoomService
+	ms   *MatchService
 }
 
-func NewMatchQueueService(ms *MatchService, rs *RoomService) *MatchQueueService {
+func NewMatchQueueService(ms *MatchService, rs *RoomService, repo *repository.MatchQueueRepository) *MatchQueueService {
 	return &MatchQueueService{
-		queues: make(map[string][]*matchqueue.QueueEntry),
-		users:  make(map[int64]*matchqueue.QueueUserState),
-		rs:     rs,
-		ms:     ms,
+		repo: repo,
+		rs:   rs,
+		ms:   ms,
 	}
 }
 
@@ -41,29 +40,28 @@ func (s *MatchQueueService) Join(ctx context.Context, userID int64, req *req.Joi
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	if state, ok := s.users[userID]; ok {
+	state, err := s.repo.GetUserStatus(ctx, userID)
+	if err != nil {
+		return nil, fmt.Errorf("获取用户匹配状态失败: %w", err)
+	}
+	if state != nil {
 		switch state.Status {
-		case matchqueue.QueueStatusMatching:
-			return s.buildJoinResponse(state), nil
-		case matchqueue.QueueStatusMatched:
+		case matchqueue.QueueStatusMatching, matchqueue.QueueStatusMatched:
 			return s.buildJoinResponse(state), nil
 		case matchqueue.QueueStatusCancelled, matchqueue.QueueStatusInit:
-			delete(s.users, userID)
+			if err := s.repo.DeleteUserStatus(ctx, userID); err != nil {
+				return nil, fmt.Errorf("删除用户匹配状态失败: %w", err)
+			}
 		default:
-			delete(s.users, userID)
+			if err := s.repo.DeleteUserStatus(ctx, userID); err != nil {
+				return nil, fmt.Errorf("删除用户匹配状态失败: %w", err)
+			}
 		}
 	}
-
 	now := time.Now()
 	ticketID := generateQueueTicketID()
-	entry := &matchqueue.QueueEntry{
-		UserID:      userID,
-		Mode:        mode,
-		EnqueueTime: now,
-		TicketID:    ticketID,
-	}
 
-	s.users[userID] = &matchqueue.QueueUserState{
+	state = &matchqueue.QueueUserState{
 		UserID:      userID,
 		Mode:        mode,
 		Status:      matchqueue.QueueStatusMatching,
@@ -71,12 +69,21 @@ func (s *MatchQueueService) Join(ctx context.Context, userID int64, req *req.Joi
 		UpdatedAt:   now,
 		EnqueueTime: now,
 	}
-	s.queues[mode] = append(s.queues[mode], entry)
-	matchTeams, roomID := s.FindMatchGroup(ctx, mode)
+	if err := s.repo.SetUserStatus(ctx, state); err != nil {
+		return nil, fmt.Errorf("设置用户匹配状态失败: %w", err)
+	}
+
+	if err := s.repo.Enqueue(ctx, mode, userID); err != nil {
+		return nil, fmt.Errorf("加入匹配队列失败: %w", err)
+	}
+	matchTeams, roomID, err := s.FindMatchGroup(ctx, mode)
+	if err != nil {
+		return nil, fmt.Errorf("查找匹配组失败: %w", err)
+	}
 	if matchTeams == nil {
-		userState, ok := s.users[userID]
-		if !ok {
-			return nil, errors.New("队列状态异常")
+		userState, err := s.repo.GetUserStatus(ctx, userID)
+		if err != nil {
+			return nil, fmt.Errorf("获取用户匹配状态失败: %w", err)
 		}
 		return s.buildJoinResponse(userState), nil
 	}
@@ -89,16 +96,20 @@ func (s *MatchQueueService) Join(ctx context.Context, userID int64, req *req.Joi
 	})
 	if err != nil {
 		fmt.Println("Create Match From Queue Failed!")
-		s.restoreMatchedUsers(matchTeams, mode)
+		if err := s.restoreMatchedUsers(ctx, matchTeams, mode); err != nil {
+			return nil, fmt.Errorf("恢复匹配用户失败: %w", err)
+		}
 		return nil, errors.New("创建比赛失败")
 	}
-	s.updateUserStateToMatched(matchTeams, roomID, matchID)
+	if err := s.updateUserStateToMatched(ctx, matchTeams, roomID, matchID); err != nil {
+		return nil, fmt.Errorf("更新用户匹配状态失败: %w", err)
+	}
 	if _, err := s.rs.CreateRoom(roomID, mode, matchID, matchTeams); err != nil {
 		return nil, errors.New("创建房间失败")
 	}
-	userState, ok := s.users[userID]
-	if !ok {
-		return nil, errors.New("队列状态异常")
+	userState, err := s.repo.GetUserStatus(ctx, userID)
+	if err != nil {
+		return nil, fmt.Errorf("获取用户匹配状态失败: %w", err)
 	}
 	return s.buildJoinResponse(userState), nil
 }
@@ -106,8 +117,11 @@ func (s *MatchQueueService) Join(ctx context.Context, userID int64, req *req.Joi
 func (s *MatchQueueService) Status(ctx context.Context, userID int64) (*res.StatusMatchQueueResponse, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	status, ok := s.users[userID]
-	if !ok {
+	status, err := s.repo.GetUserStatus(ctx, userID)
+	if err != nil {
+		return nil, fmt.Errorf("获取用户匹配状态失败: %w", err)
+	}
+	if status == nil {
 		return nil, errors.New("匹配状态不存在")
 	}
 	return &res.StatusMatchQueueResponse{
@@ -126,8 +140,11 @@ func (s *MatchQueueService) Status(ctx context.Context, userID int64) (*res.Stat
 func (s *MatchQueueService) Cancel(ctx context.Context, userID int64) (*res.StatusMatchQueueResponse, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	status, ok := s.users[userID]
-	if !ok {
+	status, err := s.repo.GetUserStatus(ctx, userID)
+	if err != nil {
+		return nil, fmt.Errorf("获取用户匹配状态失败: %w", err)
+	}
+	if status == nil {
 		return nil, errors.New("匹配状态不存在")
 	}
 	if status.Status != matchqueue.QueueStatusMatching {
@@ -135,9 +152,14 @@ func (s *MatchQueueService) Cancel(ctx context.Context, userID int64) (*res.Stat
 	}
 
 	mode := status.Mode
-	s.removeFromQueue(mode, userID)
+	if err := s.repo.RemoveFromQueue(ctx, mode, userID); err != nil {
+		return nil, fmt.Errorf("从匹配队列中移除用户失败: %w", err)
+	}
 	status.Status = matchqueue.QueueStatusCancelled
 	status.UpdatedAt = time.Now()
+	if err := s.repo.SetUserStatus(ctx, status); err != nil {
+		return nil, fmt.Errorf("更新用户匹配状态失败: %w", err)
+	}
 	return &res.StatusMatchQueueResponse{
 		UserID:    userID,
 		Mode:      status.Mode,
@@ -160,29 +182,37 @@ func (s *MatchQueueService) buildJoinResponse(state *matchqueue.QueueUserState) 
 	}
 }
 
-func (s *MatchQueueService) FindMatchGroup(ctx context.Context, mode string) ([]matchqueue.MatchedTeam, string) {
-	queue := s.queues[mode]
+func (s *MatchQueueService) FindMatchGroup(ctx context.Context, mode string) ([]matchqueue.MatchedTeam, string, error) {
 	required := getPlayerCount(mode)
 	if required <= 0 {
-		return nil, ""
+		return nil, "", fmt.Errorf("无效的匹配模式: %s", mode)
 	}
-	if len(queue) < int(required) {
-		return nil, ""
+	len, err := s.repo.QueueLen(ctx, mode)
+	if err != nil {
+		return nil, "", fmt.Errorf("获取队列长度失败: %w", err)
 	}
-	matchedEntries := queue[:required]
-	remainEntries := queue[required:]
-	s.queues[mode] = remainEntries
+	if int(len) < int(required) {
+		return nil, "", nil
+	}
+	userIDs, err := s.repo.DequeueBatch(ctx, mode, int64(required))
+	if err != nil {
+		return nil, "", fmt.Errorf("从队列中批量弹出用户失败 for mode %s: %w", mode, err)
+	}
+
 	roomID := generateRoomID()
-	teams := buildTeams(mode, matchedEntries)
-	return teams, roomID
+	teams := buildTeams(mode, userIDs)
+	return teams, roomID, nil
 }
 
-func (s *MatchQueueService) updateUserStateToMatched(teams []matchqueue.MatchedTeam, roomID string, matchID int64) {
+func (s *MatchQueueService) updateUserStateToMatched(ctx context.Context, teams []matchqueue.MatchedTeam, roomID string, matchID int64) error {
 	now := time.Now()
 	for _, team := range teams {
 		for _, userID := range team.UserIDs {
-			state, ok := s.users[userID]
-			if !ok {
+			state, err := s.repo.GetUserStatus(ctx, userID)
+			if err != nil {
+				return fmt.Errorf("获取用户匹配状态失败 for userID %d: %w", userID, err)
+			}
+			if state == nil {
 				continue
 			}
 			state.Status = matchqueue.QueueStatusMatched
@@ -190,35 +220,30 @@ func (s *MatchQueueService) updateUserStateToMatched(teams []matchqueue.MatchedT
 			state.MatchID = matchID
 			state.Teams = teams
 			state.UpdatedAt = now
+			if err := s.repo.SetUserStatus(ctx, state); err != nil {
+				return fmt.Errorf("更新用户匹配状态失败 for userID %d: %w", userID, err)
+			}
 		}
 	}
+	return nil
 }
 
-func (s *MatchQueueService) restoreMatchedUsers(teams []matchqueue.MatchedTeam, mode string) {
-	queue := s.queues[mode]
+func (s *MatchQueueService) restoreMatchedUsers(ctx context.Context, teams []matchqueue.MatchedTeam, mode string) error {
 	for _, team := range teams {
 		for _, userID := range team.UserIDs {
-			userState := s.users[userID]
-			queue = append(queue, &matchqueue.QueueEntry{
-				UserID:      userID,
-				UserName:    userState.UserName,
-				Mode:        mode,
-				EnqueueTime: userState.EnqueueTime,
-				TicketID:    userState.TicketID,
-			})
+			userState, err := s.repo.GetUserStatus(ctx, userID)
+			if err != nil {
+				return fmt.Errorf("获取用户匹配状态失败 for userID %d: %w", userID, err)
+			}
+			if userState == nil {
+				continue
+			}
+			if err := s.repo.Enqueue(ctx, mode, userID); err != nil {
+				return fmt.Errorf("将用户重新加入队列失败 for userID %d: %w", userID, err)
+			}
 		}
 	}
-	s.queues[mode] = queue
-}
-
-func (s *MatchQueueService) removeFromQueue(mode string, userID int64) {
-	queue := s.queues[mode]
-	for i, entry := range queue {
-		if entry.UserID == userID {
-			s.queues[mode] = append(queue[:i], queue[i+1:]...)
-			break
-		}
-	}
+	return nil
 }
 
 func getPlayerCount(mode string) int8 {
@@ -240,28 +265,28 @@ func generateRoomID() string {
 	return fmt.Sprintf("r_%d", time.Now().UnixNano())
 }
 
-func buildTeams(mode string, entries []*matchqueue.QueueEntry) []matchqueue.MatchedTeam {
+func buildTeams(mode string, userIDs []int64) []matchqueue.MatchedTeam {
 	switch mode {
 	case "1v1":
 		return []matchqueue.MatchedTeam{
 			{
 				TeamID:  0,
-				UserIDs: []int64{entries[0].UserID},
+				UserIDs: []int64{userIDs[0]},
 			},
 			{
 				TeamID:  1,
-				UserIDs: []int64{entries[1].UserID},
+				UserIDs: []int64{userIDs[1]},
 			},
 		}
 	case "2v2":
 		return []matchqueue.MatchedTeam{
 			{
 				TeamID:  0,
-				UserIDs: []int64{entries[0].UserID, entries[1].UserID},
+				UserIDs: []int64{userIDs[0], userIDs[1]},
 			},
 			{
 				TeamID:  1,
-				UserIDs: []int64{entries[2].UserID, entries[3].UserID},
+				UserIDs: []int64{userIDs[2], userIDs[3]},
 			},
 		}
 	default:

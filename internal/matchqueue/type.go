@@ -22,14 +22,6 @@ type MatchQueueResult struct {
 	Teams  []MatchedTeam `json:"teams"`
 }
 
-type QueueEntry struct {
-	UserID      int64
-	UserName    string
-	Mode        string
-	EnqueueTime time.Time
-	TicketID    string
-}
-
 type QueueUserState struct {
 	UserID      int64
 	UserName    string

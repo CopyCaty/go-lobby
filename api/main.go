@@ -1,8 +1,10 @@
 package main
 
 import (
+	"context"
 	"go-lobby/config"
 	"go-lobby/internal/auth"
+	"go-lobby/internal/cache"
 	"go-lobby/internal/handler"
 	"go-lobby/internal/middleware"
 	"go-lobby/internal/repository"
@@ -29,6 +31,12 @@ func main() {
 	}
 	defer db.Close()
 
+	redisClient := cache.NewRedisClient(&cfg.Redis)
+	if err := cache.PingRedis(context.Background(), redisClient); err != nil {
+		log.Fatal(err)
+	}
+	defer redisClient.Close()
+
 	gin.SetMode(gin.DebugMode)
 
 	jwtManager := auth.NewJWTManager(cfg.JWT.Secret, time.Duration(cfg.JWT.ExpireSec)*time.Second)
@@ -40,7 +48,9 @@ func main() {
 	roomHandler := handler.NewRoomHandler(roomService)
 	matchRepo := repository.NewMatchRepository(db)
 	matchService := service.NewMatchService(matchRepo)
-	matchQueueService := service.NewMatchQueueService(matchService, roomService)
+
+	matchQueueRepo := repository.NewMatchQueueRepository(redisClient)
+	matchQueueService := service.NewMatchQueueService(matchService, roomService, matchQueueRepo)
 	matchQueueHandler := handler.NewMatchQueueHandler(matchQueueService)
 	matchHandler := handler.NewMatchHandler(matchService)
 

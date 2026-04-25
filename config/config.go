@@ -10,6 +10,7 @@ type Config struct {
 	Server   ServerConfig   `yaml:"server"`
 	Database DatabaseConfig `yaml:"database"`
 	JWT      JWTConfig      `yaml:"jwt"`
+	Redis    RedisConfig    `yaml:"redis"`
 }
 
 type ServerConfig struct {
@@ -24,6 +25,12 @@ type DatabaseConfig struct {
 type JWTConfig struct {
 	Secret    string `yaml:"secret"`
 	ExpireSec int64  `yaml:"expire_sec"`
+}
+
+type RedisConfig struct {
+	Addr     string `yaml:"addr"`
+	Password string `yaml:"password"`
+	DB       int    `yaml:"db"`
 }
 
 func Load(path string) (*Config, error) {
