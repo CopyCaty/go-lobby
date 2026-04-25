@@ -16,13 +16,15 @@ type MatchQueueService struct {
 	mu     sync.Mutex
 	queues map[string][]*matchqueue.QueueEntry
 	users  map[int64]*matchqueue.QueueUserState
+	rs     *RoomService
 	ms     *MatchService
 }
 
-func NewMatchQueueService(ms *MatchService) *MatchQueueService {
+func NewMatchQueueService(ms *MatchService, rs *RoomService) *MatchQueueService {
 	return &MatchQueueService{
 		queues: make(map[string][]*matchqueue.QueueEntry),
 		users:  make(map[int64]*matchqueue.QueueUserState),
+		rs:     rs,
 		ms:     ms,
 	}
 }
@@ -91,6 +93,9 @@ func (s *MatchQueueService) Join(ctx context.Context, userID int64, req *req.Joi
 		return nil, errors.New("创建比赛失败")
 	}
 	s.updateUserStateToMatched(matchTeams, roomID, matchID)
+	if _, err := s.rs.CreateRoom(roomID, mode, matchID, matchTeams); err != nil {
+		return nil, errors.New("创建房间失败")
+	}
 	userState, ok := s.users[userID]
 	if !ok {
 		return nil, errors.New("队列状态异常")
@@ -107,6 +112,7 @@ func (s *MatchQueueService) Status(ctx context.Context, userID int64) (*res.Stat
 	}
 	return &res.StatusMatchQueueResponse{
 		UserID:    userID,
+		MatchID:   status.MatchID,
 		Mode:      status.Mode,
 		Status:    status.Status,
 		TicketID:  status.TicketID,
@@ -147,6 +153,7 @@ func (s *MatchQueueService) buildJoinResponse(state *matchqueue.QueueUserState) 
 	return &res.JoinMatchQueueResponse{
 		QueueStatus:   string(state.Status),
 		QueueTicketID: state.TicketID,
+		MatchID:       state.MatchID,
 		Mode:          state.Mode,
 		RoomID:        state.RoomID,
 		Teams:         state.Teams,

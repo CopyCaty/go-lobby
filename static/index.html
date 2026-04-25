@@ -7,229 +7,75 @@
     <style>
       :root {
         color-scheme: dark;
-        --bg: #080d18;
-        --panel: rgba(15, 23, 42, 0.86);
-        --panel-strong: rgba(20, 31, 56, 0.94);
-        --line: rgba(148, 163, 184, 0.2);
-        --text: rgba(248, 250, 252, 0.94);
-        --muted: rgba(203, 213, 225, 0.68);
-        --weak: rgba(148, 163, 184, 0.52);
+        --bg: #08111f;
+        --card: rgba(15, 23, 42, 0.92);
+        --line: rgba(148, 163, 184, 0.22);
+        --text: #e5edf7;
+        --muted: #94a3b8;
         --accent: #60a5fa;
-        --accent-2: #22d3ee;
+        --cyan: #22d3ee;
         --ok: #34d399;
         --warn: #fbbf24;
         --bad: #fb7185;
-        --shadow: 0 24px 80px rgba(0, 0, 0, 0.38);
       }
 
       * { box-sizing: border-box; }
-      html, body { min-height: 100%; }
       body {
         margin: 0;
-        font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont,
-          "Segoe UI", "PingFang SC", "Microsoft YaHei", Arial, sans-serif;
+        min-height: 100vh;
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC",
+          "Microsoft YaHei", Arial, sans-serif;
         color: var(--text);
         background:
-          radial-gradient(900px 520px at 10% 8%, rgba(37, 99, 235, 0.32), transparent 58%),
-          radial-gradient(760px 460px at 90% 16%, rgba(34, 211, 238, 0.18), transparent 55%),
-          linear-gradient(180deg, #09111f 0%, var(--bg) 58%, #050812 100%);
+          radial-gradient(900px 520px at 10% 0%, rgba(37, 99, 235, 0.28), transparent 60%),
+          radial-gradient(700px 420px at 92% 10%, rgba(34, 211, 238, 0.18), transparent 56%),
+          var(--bg);
       }
 
-      button, input, select, textarea {
-        font: inherit;
+      button, input, select, textarea { font: inherit; }
+      .layout {
+        width: min(1180px, calc(100% - 32px));
+        margin: 0 auto;
+        padding: 28px 0 44px;
       }
 
-      .shell {
-        min-height: 100vh;
-        display: grid;
-        grid-template-columns: 260px minmax(0, 1fr);
-      }
-
-      .sidebar {
-        border-right: 1px solid var(--line);
-        background: rgba(2, 6, 23, 0.54);
-        backdrop-filter: blur(18px);
-        padding: 24px 18px;
-        position: sticky;
-        top: 0;
-        height: 100vh;
-      }
-
-      .brand {
-        display: flex;
-        gap: 12px;
-        align-items: center;
-        margin-bottom: 28px;
-      }
-
-      .logo {
-        width: 42px;
-        height: 42px;
-        border-radius: 14px;
-        display: grid;
-        place-items: center;
-        background: linear-gradient(135deg, var(--accent), var(--accent-2));
-        color: #020617;
-        font-weight: 900;
-        box-shadow: 0 14px 34px rgba(96, 165, 250, 0.28);
-      }
-
-      .brand h1 {
-        margin: 0;
-        font-size: 16px;
-        letter-spacing: 0.02em;
-      }
-
-      .brand p {
-        margin: 3px 0 0;
-        color: var(--muted);
-        font-size: 12px;
-      }
-
-      .nav-title {
-        color: var(--weak);
-        font-size: 11px;
-        letter-spacing: 0.14em;
-        text-transform: uppercase;
-        margin: 22px 0 10px;
-      }
-
-      .nav-item {
-        display: flex;
-        align-items: center;
-        gap: 10px;
-        color: var(--muted);
-        padding: 10px 11px;
-        border-radius: 12px;
-        margin-bottom: 6px;
-        border: 1px solid transparent;
-      }
-
-      .nav-item.active {
-        color: var(--text);
-        background: rgba(96, 165, 250, 0.12);
-        border-color: rgba(96, 165, 250, 0.22);
-      }
-
-      .dot {
-        width: 8px;
-        height: 8px;
-        border-radius: 50%;
-        background: var(--weak);
-      }
-
-      .dot.ok { background: var(--ok); }
-      .dot.warn { background: var(--warn); }
-      .dot.bad { background: var(--bad); }
-
-      .main {
-        padding: 28px;
-      }
-
-      .topbar {
+      header {
         display: flex;
         justify-content: space-between;
-        align-items: flex-start;
         gap: 18px;
-        margin-bottom: 22px;
+        align-items: flex-start;
+        margin-bottom: 18px;
       }
 
-      .title h2 {
-        margin: 0;
-        font-size: 26px;
-        letter-spacing: -0.03em;
-      }
-
-      .title p {
-        margin: 8px 0 0;
-        color: var(--muted);
-        line-height: 1.6;
-      }
-
-      .session-card {
-        min-width: 280px;
-        padding: 14px;
-        border: 1px solid var(--line);
-        background: var(--panel);
-        border-radius: 18px;
-        box-shadow: var(--shadow);
-      }
-
-      .session-name {
-        display: flex;
-        justify-content: space-between;
-        align-items: center;
-        gap: 12px;
-        margin-bottom: 10px;
-      }
-
-      .badge {
-        display: inline-flex;
-        align-items: center;
-        gap: 6px;
-        padding: 5px 9px;
-        border-radius: 999px;
-        font-size: 12px;
-        color: var(--muted);
-        background: rgba(148, 163, 184, 0.12);
-        border: 1px solid rgba(148, 163, 184, 0.16);
-      }
-
-      .badge.ok {
-        color: #bbf7d0;
-        background: rgba(34, 197, 94, 0.12);
-        border-color: rgba(34, 197, 94, 0.26);
-      }
-
-      .badge.warn {
-        color: #fde68a;
-        background: rgba(245, 158, 11, 0.12);
-        border-color: rgba(245, 158, 11, 0.24);
-      }
+      h1, h2, h3, p { margin-top: 0; }
+      h1 { font-size: 28px; margin-bottom: 8px; letter-spacing: -0.03em; }
+      h2 { font-size: 16px; margin-bottom: 6px; }
+      p { color: var(--muted); line-height: 1.55; }
 
       .grid {
         display: grid;
-        grid-template-columns: minmax(0, 1.1fr) minmax(320px, 0.9fr);
-        gap: 18px;
+        grid-template-columns: minmax(0, 1.1fr) minmax(360px, 0.9fr);
+        gap: 16px;
         align-items: start;
       }
 
-      .panel {
+      .stack { display: grid; gap: 16px; }
+      .card {
         border: 1px solid var(--line);
-        background: var(--panel);
-        border-radius: 22px;
-        box-shadow: var(--shadow);
+        border-radius: 20px;
+        background: var(--card);
+        box-shadow: 0 24px 70px rgba(0, 0, 0, 0.28);
         overflow: hidden;
       }
 
-      .panel-head {
-        padding: 18px 18px 14px;
+      .card-head {
+        padding: 16px 18px 12px;
         border-bottom: 1px solid var(--line);
-        background: linear-gradient(180deg, rgba(30, 41, 59, 0.72), rgba(15, 23, 42, 0));
+        background: linear-gradient(180deg, rgba(30, 41, 59, 0.72), transparent);
       }
 
-      .panel-head h3 {
-        margin: 0;
-        font-size: 15px;
-      }
-
-      .panel-head p {
-        margin: 6px 0 0;
-        color: var(--muted);
-        font-size: 13px;
-        line-height: 1.5;
-      }
-
-      .panel-body {
-        padding: 18px;
-      }
-
-      .stack {
-        display: grid;
-        gap: 14px;
-      }
-
-      .columns {
+      .card-body { padding: 18px; }
+      .row {
         display: grid;
         grid-template-columns: 1fr 1fr;
         gap: 12px;
@@ -239,28 +85,23 @@
         display: block;
         color: var(--muted);
         font-size: 12px;
-        margin-bottom: 7px;
+        margin-bottom: 6px;
       }
 
       input, select, textarea {
         width: 100%;
-        border: 1px solid rgba(148, 163, 184, 0.24);
-        color: var(--text);
-        background: rgba(2, 6, 23, 0.48);
+        border: 1px solid rgba(148, 163, 184, 0.25);
         border-radius: 12px;
-        padding: 11px 12px;
+        background: rgba(2, 6, 23, 0.5);
+        color: var(--text);
+        padding: 10px 11px;
         outline: none;
       }
 
-      textarea {
-        min-height: 88px;
-        resize: vertical;
-        line-height: 1.45;
-      }
-
+      textarea { min-height: 82px; resize: vertical; }
       input:focus, select:focus, textarea:focus {
-        border-color: rgba(96, 165, 250, 0.72);
-        box-shadow: 0 0 0 4px rgba(96, 165, 250, 0.12);
+        border-color: rgba(96, 165, 250, 0.75);
+        box-shadow: 0 0 0 4px rgba(96, 165, 250, 0.13);
       }
 
       .actions {
@@ -268,356 +109,277 @@
         flex-wrap: wrap;
         gap: 10px;
         align-items: center;
+        margin-top: 14px;
       }
 
       button {
-        border: 1px solid rgba(96, 165, 250, 0.42);
-        background: linear-gradient(135deg, rgba(96, 165, 250, 0.9), rgba(34, 211, 238, 0.78));
-        color: #031124;
-        font-weight: 800;
+        border: 1px solid rgba(96, 165, 250, 0.45);
         border-radius: 12px;
         padding: 10px 13px;
+        color: #031124;
+        background: linear-gradient(135deg, var(--accent), var(--cyan));
+        font-weight: 800;
         cursor: pointer;
       }
 
       button.secondary {
         color: var(--text);
-        background: rgba(15, 23, 42, 0.68);
-        border-color: rgba(148, 163, 184, 0.24);
+        background: rgba(15, 23, 42, 0.72);
+        border-color: rgba(148, 163, 184, 0.28);
       }
 
       button.danger {
-        color: #fff1f2;
+        color: #ffe4e6;
         background: rgba(244, 63, 94, 0.16);
         border-color: rgba(244, 63, 94, 0.35);
       }
 
-      button:disabled {
-        opacity: 0.55;
-        cursor: not-allowed;
+      button:disabled { opacity: 0.55; cursor: not-allowed; }
+
+      .badge {
+        display: inline-flex;
+        align-items: center;
+        border-radius: 999px;
+        padding: 5px 10px;
+        font-size: 12px;
+        color: var(--muted);
+        background: rgba(148, 163, 184, 0.12);
+        border: 1px solid rgba(148, 163, 184, 0.18);
       }
 
-      .hero {
-        padding: 18px;
-        border-radius: 20px;
-        background:
-          linear-gradient(135deg, rgba(96, 165, 250, 0.14), rgba(34, 211, 238, 0.08)),
-          var(--panel-strong);
-        border: 1px solid rgba(96, 165, 250, 0.18);
-      }
+      .badge.ok { color: #bbf7d0; background: rgba(34, 197, 94, 0.13); border-color: rgba(34, 197, 94, 0.28); }
+      .badge.warn { color: #fde68a; background: rgba(245, 158, 11, 0.13); border-color: rgba(245, 158, 11, 0.28); }
+      .badge.bad { color: #fecdd3; background: rgba(244, 63, 94, 0.13); border-color: rgba(244, 63, 94, 0.28); }
 
-      .hero-grid {
+      .metrics {
         display: grid;
-        grid-template-columns: repeat(3, 1fr);
-        gap: 12px;
-        margin-top: 15px;
+        grid-template-columns: repeat(4, 1fr);
+        gap: 10px;
       }
 
-      .metric {
-        padding: 13px;
+      .metric, .player {
+        border: 1px solid rgba(148, 163, 184, 0.16);
         border-radius: 16px;
-        background: rgba(2, 6, 23, 0.36);
-        border: 1px solid rgba(148, 163, 184, 0.14);
+        background: rgba(2, 6, 23, 0.38);
+        padding: 12px;
       }
 
-      .metric span {
+      .metric span, .player span {
         display: block;
-        color: var(--weak);
+        color: var(--muted);
         font-size: 12px;
         margin-bottom: 6px;
       }
 
-      .metric strong {
+      .metric strong, .player strong {
         display: block;
-        font-size: 16px;
+        font-size: 15px;
         word-break: break-all;
       }
 
-      .timeline {
+      .players {
         display: grid;
+        grid-template-columns: repeat(2, 1fr);
         gap: 10px;
-      }
-
-      .step {
-        display: grid;
-        grid-template-columns: 28px minmax(0, 1fr);
-        gap: 10px;
-        align-items: start;
-      }
-
-      .step-no {
-        width: 28px;
-        height: 28px;
-        display: grid;
-        place-items: center;
-        border-radius: 10px;
-        background: rgba(96, 165, 250, 0.14);
-        color: #bfdbfe;
-        font-weight: 800;
-        font-size: 12px;
-      }
-
-      .step strong {
-        display: block;
-        font-size: 13px;
-      }
-
-      .step span {
-        color: var(--muted);
-        font-size: 12px;
-        line-height: 1.5;
+        margin-top: 14px;
       }
 
       pre {
         margin: 0;
-        padding: 14px;
         max-height: 420px;
         overflow: auto;
-        border-radius: 16px;
-        background: rgba(2, 6, 23, 0.72);
+        padding: 13px;
+        border-radius: 14px;
+        background: rgba(2, 6, 23, 0.68);
         border: 1px solid rgba(148, 163, 184, 0.16);
         color: #dbeafe;
-        line-height: 1.5;
         font-size: 12px;
+        line-height: 1.5;
       }
 
       .log {
         display: grid;
-        gap: 9px;
-        max-height: 260px;
+        gap: 8px;
+        max-height: 240px;
         overflow: auto;
       }
 
       .log-item {
-        border: 1px solid rgba(148, 163, 184, 0.14);
+        padding: 9px 10px;
+        border-radius: 13px;
+        border: 1px solid rgba(148, 163, 184, 0.15);
         background: rgba(2, 6, 23, 0.32);
-        border-radius: 14px;
-        padding: 10px;
-      }
-
-      .log-item strong {
-        display: block;
-        font-size: 12px;
-      }
-
-      .log-item span {
         color: var(--muted);
         font-size: 12px;
       }
 
-      .muted { color: var(--muted); }
-      .mono {
-        font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+      @media (max-width: 980px) {
+        header, .grid { grid-template-columns: 1fr; display: grid; }
+        .metrics { grid-template-columns: 1fr 1fr; }
       }
 
-      @media (max-width: 1060px) {
-        .shell { grid-template-columns: 1fr; }
-        .sidebar {
-          height: auto;
-          position: static;
-          border-right: 0;
-          border-bottom: 1px solid var(--line);
-        }
-        .grid { grid-template-columns: 1fr; }
-        .topbar { flex-direction: column; }
-        .session-card { width: 100%; }
-      }
-
-      @media (max-width: 680px) {
-        .main { padding: 18px; }
-        .columns, .hero-grid { grid-template-columns: 1fr; }
+      @media (max-width: 620px) {
+        .row, .metrics, .players { grid-template-columns: 1fr; }
       }
     </style>
   </head>
   <body>
-    <div class="shell">
-      <aside class="sidebar">
-        <div class="brand">
-          <div class="logo">GL</div>
-          <div>
-            <h1>go-lobby</h1>
-            <p>轻量级匹配大厅 MVP</p>
-          </div>
+    <div class="layout">
+      <header>
+        <div>
+          <span class="badge ok">go-lobby MVP</span>
+          <h1>玩家大厅控制台</h1>
+          <p>按真实业务流程测试：账号登录、加入匹配、创建对局、进入房间、玩家准备。</p>
         </div>
-
-        <div class="nav-title">流程</div>
-        <div class="nav-item active"><span class="dot ok"></span>账号会话</div>
-        <div class="nav-item active"><span class="dot warn"></span>匹配队列</div>
-        <div class="nav-item"><span class="dot"></span>房间运行态</div>
-        <div class="nav-item"><span class="dot"></span>对局结算</div>
-
-        <div class="nav-title">当前接口</div>
-        <div class="nav-item"><span class="dot"></span><span class="mono">/users/register</span></div>
-        <div class="nav-item"><span class="dot"></span><span class="mono">/users/login</span></div>
-        <div class="nav-item"><span class="dot"></span><span class="mono">/match/queue</span></div>
-      </aside>
-
-      <main class="main">
-        <div class="topbar">
-          <div class="title">
-            <h2>玩家大厅控制台</h2>
-          </div>
-
-          <section class="session-card">
-            <div class="session-name">
-              <div>
-                <strong id="session_user">未登录</strong>
-                <div class="muted" id="session_hint">请先注册或登录账号</div>
-              </div>
-              <span id="session_badge" class="badge warn"><span class="dot warn"></span>游客</span>
-            </div>
-            <textarea id="token" placeholder="登录成功后自动保存 token；也可以手动粘贴 Bearer token"></textarea>
-            <div class="actions" style="margin-top: 10px">
-              <button id="me_submit" class="secondary" type="button">刷新当前用户</button>
+        <div class="card" style="min-width: 320px">
+          <div class="card-body">
+            <strong id="session_user">未登录</strong>
+            <p id="session_hint" style="margin: 6px 0 10px">请先登录玩家账号</p>
+            <textarea id="token" placeholder="登录后自动保存 token，也可手动粘贴"></textarea>
+            <div class="actions">
+              <button id="me_submit" class="secondary" type="button">刷新用户</button>
               <button id="clear_token" class="danger" type="button">退出</button>
             </div>
-          </section>
+          </div>
         </div>
+      </header>
 
-        <div class="grid">
-          <section class="stack">
-            <div class="hero">
-              <div class="badge ok"><span class="dot ok"></span>本地调试环境</div>
-              <h3 style="margin: 12px 0 0">当前大厅状态</h3>
-              <p class="muted" style="margin: 8px 0 0">匹配成功后应返回队伍、房间 ID 和对局 ID；后续房间页面可基于这些字段继续开发。</p>
-              <div class="hero-grid">
-                <div class="metric">
-                  <span>队列状态</span>
-                  <strong id="metric_status">-</strong>
+      <section class="card" style="margin-bottom: 16px">
+        <div class="card-body">
+          <div class="metrics">
+            <div class="metric"><span>队列状态</span><strong id="metric_status">-</strong></div>
+            <div class="metric"><span>房间状态</span><strong id="metric_room_status">-</strong></div>
+            <div class="metric"><span>对局 ID</span><strong id="metric_match">-</strong></div>
+            <div class="metric"><span>房间 ID</span><strong id="metric_room">-</strong></div>
+          </div>
+        </div>
+      </section>
+
+      <div class="grid">
+        <main class="stack">
+          <section class="card">
+            <div class="card-head">
+              <h2>账号入口</h2>
+              <p>注册测试玩家，或直接登录已有玩家。登录成功后会持久化 token。</p>
+            </div>
+            <div class="card-body">
+              <div class="row">
+                <div>
+                  <label for="user_name">用户名</label>
+                  <input id="user_name" autocomplete="username" placeholder="至少 6 位" />
                 </div>
-                <div class="metric">
-                  <span>房间 ID</span>
-                  <strong id="metric_room">-</strong>
+                <div>
+                  <label for="nickname">昵称</label>
+                  <input id="nickname" autocomplete="nickname" placeholder="至少 6 位" />
                 </div>
-                <div class="metric">
-                  <span>对局 ID</span>
-                  <strong id="metric_match">-</strong>
+              </div>
+              <div class="row" style="margin-top: 12px">
+                <div>
+                  <label for="password">注册密码</label>
+                  <input id="password" type="password" autocomplete="new-password" placeholder="至少 8 位" />
                 </div>
+                <div>
+                  <label for="login_password">登录密码</label>
+                  <input id="login_password" type="password" autocomplete="current-password" placeholder="默认同注册密码" />
+                </div>
+              </div>
+              <div class="actions">
+                <button id="fill" class="secondary" type="button">生成玩家</button>
+                <button id="register_submit" type="button">注册</button>
+                <button id="login_submit" type="button">登录</button>
+                <span id="account_status" class="badge">待操作</span>
               </div>
             </div>
-
-            <section class="panel">
-              <div class="panel-head">
-                <h3>账号入口</h3>
-                <p>创建测试玩家或使用已有账号登录。登录成功后 token 会保存在浏览器本地。</p>
-              </div>
-              <div class="panel-body stack">
-                <div class="columns">
-                  <div>
-                    <label for="user_name">用户名</label>
-                    <input id="user_name" autocomplete="username" placeholder="至少 6 位" />
-                  </div>
-                  <div>
-                    <label for="nickname">昵称</label>
-                    <input id="nickname" autocomplete="nickname" placeholder="至少 6 位" />
-                  </div>
-                </div>
-                <div class="columns">
-                  <div>
-                    <label for="password">注册密码</label>
-                    <input id="password" type="password" autocomplete="new-password" placeholder="至少 8 位" />
-                  </div>
-                  <div>
-                    <label for="login_password">登录密码</label>
-                    <input id="login_password" type="password" autocomplete="current-password" placeholder="默认同步注册密码" />
-                  </div>
-                </div>
-                <div class="actions">
-                  <button id="fill" type="button" class="secondary">生成测试玩家</button>
-                  <button id="register_submit" type="button">注册</button>
-                  <button id="login_submit" type="button">登录</button>
-                  <span id="account_status" class="badge">待操作</span>
-                </div>
-              </div>
-            </section>
-
-            <section class="panel">
-              <div class="panel-head">
-                <h3>匹配大厅</h3>
-                <p>选择模式加入队列。开两个浏览器或使用两个账号可验证 1v1 匹配成功后的队伍分配。</p>
-              </div>
-              <div class="panel-body stack">
-                <div class="columns">
-                  <div>
-                    <label for="queue_mode">匹配模式</label>
-                    <select id="queue_mode">
-                      <option value="1v1">1v1 快速对战</option>
-                      <option value="2v2">2v2 组队对战</option>
-                    </select>
-                  </div>
-                  <div>
-                    <label for="current_endpoint">当前状态接口</label>
-                    <input id="current_endpoint" value="/api/v1/match/queue/status" />
-                  </div>
-                </div>
-                <div class="actions">
-                  <button id="join_queue_submit" type="button">加入匹配</button>
-                  <button id="status_queue_submit" class="secondary" type="button">刷新状态</button>
-                  <button id="cancel_queue_submit" class="danger" type="button">取消匹配</button>
-                  <span id="queue_status" class="badge">未入队</span>
-                </div>
-              </div>
-            </section>
           </section>
 
-          <aside class="stack">
-            <section class="panel">
-              <div class="panel-head">
-                <h3>业务链路</h3>
-                <p>这不是单纯接口表单，而是按玩家实际行为组织的最小控制台。</p>
-              </div>
-              <div class="panel-body timeline">
-                <div class="step">
-                  <div class="step-no">1</div>
-                  <div><strong>登录玩家</strong><span>获得 JWT，后续匹配接口自动携带 Authorization。</span></div>
+          <section class="card">
+            <div class="card-head">
+              <h2>匹配大厅</h2>
+              <p>加入匹配后，如果人数凑齐，应返回 matched、match_id、room_id 和 teams。</p>
+            </div>
+            <div class="card-body">
+              <div class="row">
+                <div>
+                  <label for="queue_mode">匹配模式</label>
+                  <select id="queue_mode">
+                    <option value="1v1">1v1 快速对战</option>
+                    <option value="2v2">2v2 组队对战</option>
+                  </select>
                 </div>
-                <div class="step">
-                  <div class="step-no">2</div>
-                  <div><strong>加入队列</strong><span>服务端写入内存队列，返回 matching 或 matched。</span></div>
-                </div>
-                <div class="step">
-                  <div class="step-no">3</div>
-                  <div><strong>创建对局</strong><span>凑齐人数后创建 gl_match 和 gl_match_player。</span></div>
-                </div>
-                <div class="step">
-                  <div class="step-no">4</div>
-                  <div><strong>进入房间</strong><span>当前先展示 room_id，后续可接 RoomService。</span></div>
+                <div>
+                  <label for="status_endpoint">状态接口</label>
+                  <input id="status_endpoint" value="/api/v1/match/queue/status" />
                 </div>
               </div>
-            </section>
+              <div class="actions">
+                <button id="join_queue_submit" type="button">加入匹配</button>
+                <button id="status_queue_submit" class="secondary" type="button">刷新匹配状态</button>
+                <button id="cancel_queue_submit" class="danger" type="button">取消匹配</button>
+                <span id="queue_status" class="badge">未入队</span>
+              </div>
+            </div>
+          </section>
 
-            <section class="panel">
-              <div class="panel-head">
-                <h3>响应数据</h3>
-                <p>保留原始响应，便于核对字段和错误信息。</p>
+          <section class="card">
+            <div class="card-head">
+              <h2>房间详情与准备</h2>
+              <p>匹配成功后会自动填入 room_id；点击准备后再次查询房间可看到玩家 ready 状态。</p>
+            </div>
+            <div class="card-body">
+              <div class="row">
+                <div>
+                  <label for="room_id">房间 ID</label>
+                  <input id="room_id" placeholder="例如 r_..." />
+                </div>
+                <div>
+                  <label for="room_endpoint">房间接口</label>
+                  <input id="room_endpoint" value="/api/v1/room/" />
+                </div>
               </div>
-              <div class="panel-body">
-                <pre><code id="output">{}</code></pre>
+              <div class="actions">
+                <button id="room_submit" type="button">查询房间</button>
+                <button id="room_ready_submit" type="button">准备</button>
+                <button id="use_current_room" class="secondary" type="button">使用当前房间</button>
+                <span id="room_status" class="badge">未查询</span>
               </div>
-            </section>
+              <div id="room_players" class="players"></div>
+            </div>
+          </section>
+        </main>
 
-            <section class="panel">
-              <div class="panel-head">
-                <h3>操作日志</h3>
-                <p>按时间记录最近操作，方便复盘测试流程。</p>
-              </div>
-              <div class="panel-body">
-                <div id="log" class="log"></div>
-              </div>
-            </section>
-          </aside>
-        </div>
-      </main>
+        <aside class="stack">
+          <section class="card">
+            <div class="card-head">
+              <h2>响应数据</h2>
+              <p>展示最近一次请求和响应，便于核对字段。</p>
+            </div>
+            <div class="card-body">
+              <pre><code id="output">{}</code></pre>
+            </div>
+          </section>
+
+          <section class="card">
+            <div class="card-head">
+              <h2>操作日志</h2>
+              <p>记录最近测试动作。</p>
+            </div>
+            <div class="card-body">
+              <div id="log" class="log"></div>
+            </div>
+          </section>
+        </aside>
+      </div>
     </div>
 
     <script>
       const $ = (id) => document.getElementById(id);
       const storageKey = "go_lobby_token";
 
-      const state = {
+      const appState = {
         token: localStorage.getItem(storageKey) || "",
         user: null,
         queue: null,
+        room: null,
       };
 
       function pretty(value) {
@@ -628,34 +390,45 @@
         }
       }
 
-      function setBadge(id, text, kind) {
+      function setOutput(value) {
+        $("output").textContent = pretty(value);
+      }
+
+      function setBadge(id, text, kind = "") {
         const el = $(id);
         el.textContent = text;
         el.className = "badge" + (kind ? " " + kind : "");
       }
 
-      function setOutput(value) {
-        $("output").textContent = pretty(value);
+      function addLog(title, detail = "") {
+        const el = document.createElement("div");
+        el.className = "log-item";
+        el.textContent = `${new Date().toLocaleTimeString()} · ${title}${detail ? " · " + detail : ""}`;
+        $("log").prepend(el);
       }
 
-      function addLog(title, detail) {
-        const item = document.createElement("div");
-        item.className = "log-item";
-        const time = new Date().toLocaleTimeString();
-        item.innerHTML = `<strong>${time} · ${title}</strong><span>${detail || ""}</span>`;
-        $("log").prepend(item);
+      function syncToken() {
+        const token = $("token").value.trim();
+        appState.token = token;
+        if (token) {
+          localStorage.setItem(storageKey, token);
+        } else {
+          localStorage.removeItem(storageKey);
+        }
       }
 
       function authHeaders(extra = {}) {
+        syncToken();
         const headers = { ...extra };
-        const token = $("token").value.trim();
-        if (token) {
-          headers.Authorization = token.startsWith("Bearer ") ? token : "Bearer " + token;
+        if (appState.token) {
+          headers.Authorization = appState.token.startsWith("Bearer ")
+            ? appState.token
+            : "Bearer " + appState.token;
         }
         return headers;
       }
 
-      async function request(label, url, options = {}) {
+      async function apiRequest(label, url, options = {}) {
         const resp = await fetch(url, options);
         const text = await resp.text();
         let data;
@@ -666,113 +439,129 @@
         }
         setOutput({ request: { label, url, method: options.method || "GET" }, response: data });
         if (!resp.ok || data.code !== 0) {
-          const message = data.message || `HTTP ${resp.status}`;
-          throw new Error(message);
+          throw new Error(data.message || `HTTP ${resp.status}`);
         }
         return data;
       }
 
-      function syncSession() {
-        const token = $("token").value.trim();
-        state.token = token;
-        if (token) {
-          localStorage.setItem(storageKey, token);
-          $("session_badge").innerHTML = '<span class="dot ok"></span>已登录';
-          $("session_badge").className = "badge ok";
-        } else {
-          localStorage.removeItem(storageKey);
-          state.user = null;
-          $("session_user").textContent = "未登录";
-          $("session_hint").textContent = "请先注册或登录账号";
-          $("session_badge").innerHTML = '<span class="dot warn"></span>游客';
-          $("session_badge").className = "badge warn";
-        }
-      }
-
       function syncQueueView(data) {
         const payload = data && data.data ? data.data : data;
-        if (!payload) {
-          return;
-        }
-        state.queue = payload;
+        if (!payload) return;
+        appState.queue = payload;
+
         const status = payload.status || payload.queue_status || "-";
-        const roomID = payload.room_id || "-";
         const matchID = payload.match_id || "-";
+        const roomID = payload.room_id || "-";
+
         $("metric_status").textContent = status;
-        $("metric_room").textContent = roomID;
         $("metric_match").textContent = matchID;
+        $("metric_room").textContent = roomID;
+        if (payload.room_id) $("room_id").value = payload.room_id;
+
         const kind = status === "matched" ? "ok" : status === "matching" ? "warn" : "";
         setBadge("queue_status", status, kind);
       }
 
-      async function register() {
+      function renderRoomPlayers(room) {
+        const container = $("room_players");
+        container.innerHTML = "";
+        const players = room.players || room.Players || {};
+        Object.values(players).forEach((player) => {
+          const card = document.createElement("div");
+          card.className = "player";
+          const userID = player.user_id ?? player.UserID ?? "-";
+          const teamNo = player.team_no ?? player.TeamNo ?? "-";
+          const ready = player.ready ?? player.Ready ?? false;
+          const online = player.online ?? player.Online ?? false;
+          card.innerHTML = `
+            <span>玩家 ${userID}</span>
+            <strong>队伍 ${teamNo} · ${ready ? "已准备" : "未准备"}</strong>
+            <span>${online ? "在线" : "离线"}</span>
+          `;
+          container.appendChild(card);
+        });
+      }
+
+      function syncRoomView(data) {
+        const room = data && data.data ? data.data : data;
+        if (!room) return;
+        appState.room = room;
+
+        $("metric_room").textContent = room.id || room.room_id || "-";
+        $("metric_match").textContent = room.match_id || "-";
+        $("metric_room_status").textContent = room.status || "-";
+        renderRoomPlayers(room);
+
+        const kind = room.status === "playing" ? "ok" : room.status === "waiting" ? "warn" : "";
+        setBadge("room_status", room.status || "已获取", kind);
+      }
+
+      async function registerUser() {
         setBadge("account_status", "注册中", "warn");
         const payload = {
           user_name: $("user_name").value.trim(),
           nickname: $("nickname").value.trim(),
           password: $("password").value,
         };
-        const data = await request("注册玩家", "/api/v1/users/register", {
+        const data = await apiRequest("注册", "/api/v1/users/register", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(payload),
         });
         $("login_password").value = $("password").value;
         setBadge("account_status", "注册成功", "ok");
-        addLog("注册成功", `user_name=${data.data && data.data.user_name ? data.data.user_name : payload.user_name}`);
+        addLog("注册成功", payload.user_name);
+        return data;
       }
 
-      async function login() {
+      async function loginUser() {
         setBadge("account_status", "登录中", "warn");
         const payload = {
           user_name: $("user_name").value.trim(),
           password: $("login_password").value || $("password").value,
         };
-        const data = await request("登录玩家", "/api/v1/users/login", {
+        const data = await apiRequest("登录", "/api/v1/users/login", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(payload),
         });
         const user = data.data || {};
         $("token").value = user.token || "";
-        state.user = user;
-        syncSession();
+        syncToken();
+        appState.user = user;
         $("session_user").textContent = user.nickname || user.user_name || payload.user_name;
         $("session_hint").textContent = `user_id=${user.user_id || "-"} · ${user.user_name || payload.user_name}`;
         setBadge("account_status", "登录成功", "ok");
         addLog("登录成功", `user_id=${user.user_id || "-"}`);
       }
 
-      async function getMe() {
-        syncSession();
-        const data = await request("当前用户", "/api/v1/me", {
+      async function refreshMe() {
+        const data = await apiRequest("当前用户", "/api/v1/me", {
           method: "GET",
           headers: authHeaders(),
         });
         const user = data.data || {};
-        state.user = { ...state.user, ...user };
+        appState.user = { ...appState.user, ...user };
         $("session_user").textContent = user.nickname || user.user_name || "已登录玩家";
         $("session_hint").textContent = user.user_name ? `user_name=${user.user_name}` : "token 有效";
-        addLog("刷新当前用户", user.user_name || "成功");
+        addLog("刷新用户", user.user_name || "成功");
       }
 
       async function joinQueue() {
-        syncSession();
         setBadge("queue_status", "入队中", "warn");
         const mode = $("queue_mode").value;
-        const data = await request("加入匹配", "/api/v1/match/queue/join", {
+        const data = await apiRequest("加入匹配", "/api/v1/match/queue/join", {
           method: "POST",
           headers: authHeaders({ "Content-Type": "application/json" }),
           body: JSON.stringify({ mode }),
         });
         syncQueueView(data);
-        addLog("加入匹配", `mode=${mode}`);
+        addLog("加入匹配", mode);
       }
 
-      async function statusQueue() {
-        syncSession();
-        const endpoint = $("current_endpoint").value.trim() || "/api/v1/match/queue/status";
-        const data = await request("查询匹配状态", endpoint, {
+      async function refreshQueueStatus() {
+        const endpoint = $("status_endpoint").value.trim() || "/api/v1/match/queue/status";
+        const data = await apiRequest("匹配状态", endpoint, {
           method: "GET",
           headers: authHeaders(),
         });
@@ -781,13 +570,48 @@
       }
 
       async function cancelQueue() {
-        syncSession();
-        const data = await request("取消匹配", "/api/v1/match/queue/cancel", {
+        const data = await apiRequest("取消匹配", "/api/v1/match/queue/cancel", {
           method: "POST",
           headers: authHeaders(),
         });
         syncQueueView(data);
         addLog("取消匹配", data.message || "成功");
+      }
+
+      function roomBaseURL() {
+        return $("room_endpoint").value.trim() || "/api/v1/room/";
+      }
+
+      function roomURL(roomID, suffix = "") {
+        const base = roomBaseURL();
+        const path = base.endsWith("/") ? base + encodeURIComponent(roomID) : base + "/" + encodeURIComponent(roomID);
+        return path + suffix;
+      }
+
+      async function getRoom() {
+        const roomID = $("room_id").value.trim();
+        if (!roomID) throw new Error("请先填写 room_id，或匹配成功后再查询房间");
+        setBadge("room_status", "查询中", "warn");
+        const data = await apiRequest("房间详情", roomURL(roomID), {
+          method: "GET",
+          headers: authHeaders(),
+        });
+        syncRoomView(data);
+        addLog("查询房间", roomID);
+      }
+
+      async function readyRoom() {
+        const roomID = $("room_id").value.trim();
+        if (!roomID) throw new Error("请先填写 room_id，或匹配成功后再准备");
+        setBadge("room_status", "准备中", "warn");
+        const data = await apiRequest("玩家准备", roomURL(roomID, "/ready"), {
+          method: "POST",
+          headers: authHeaders(),
+        });
+        addLog("玩家准备", roomID);
+        setBadge("room_status", "已准备", "ok");
+        await getRoom();
+        return data;
       }
 
       function fillSample() {
@@ -796,38 +620,60 @@
         $("nickname").value = "玩家_" + suffix;
         $("password").value = "password_" + suffix;
         $("login_password").value = "password_" + suffix;
-        setBadge("account_status", "已生成", "");
+        setBadge("account_status", "已生成");
       }
 
-      function bindAction(id, fn) {
+      function useCurrentRoom() {
+        const roomID = appState.queue && appState.queue.room_id ? appState.queue.room_id : "";
+        if (roomID) {
+          $("room_id").value = roomID;
+          addLog("已填入当前房间", roomID);
+        } else {
+          setOutput({ error: "当前没有 room_id，请先匹配成功或手动填写" });
+        }
+      }
+
+      function bind(id, fn) {
         $(id).addEventListener("click", async () => {
           const button = $(id);
           button.disabled = true;
           try {
             await fn();
           } catch (error) {
-            setOutput({ error: String(error.message || error) });
-            addLog("操作失败", String(error.message || error));
-            if (id.includes("queue")) setBadge("queue_status", "失败", "");
-            if (id.includes("login") || id.includes("register")) setBadge("account_status", "失败", "");
+            const message = String(error.message || error);
+            setOutput({ error: message });
+            addLog("操作失败", message);
+            if (id.includes("queue")) setBadge("queue_status", "失败", "bad");
+            if (id.includes("room")) setBadge("room_status", "失败", "bad");
+            if (id.includes("login") || id.includes("register")) setBadge("account_status", "失败", "bad");
           } finally {
             button.disabled = false;
           }
         });
       }
 
-      $("token").value = state.token;
-      syncSession();
-      bindAction("fill", fillSample);
-      bindAction("register_submit", register);
-      bindAction("login_submit", login);
-      bindAction("me_submit", getMe);
-      bindAction("join_queue_submit", joinQueue);
-      bindAction("status_queue_submit", statusQueue);
-      bindAction("cancel_queue_submit", cancelQueue);
+      $("token").value = appState.token;
+      if (appState.token) {
+        $("session_user").textContent = "已保存 token";
+        $("session_hint").textContent = "可点击刷新用户验证 token";
+      }
+
+      bind("fill", fillSample);
+      bind("register_submit", registerUser);
+      bind("login_submit", loginUser);
+      bind("me_submit", refreshMe);
+      bind("join_queue_submit", joinQueue);
+      bind("status_queue_submit", refreshQueueStatus);
+      bind("cancel_queue_submit", cancelQueue);
+      bind("room_submit", getRoom);
+      bind("room_ready_submit", readyRoom);
+      bind("use_current_room", useCurrentRoom);
       $("clear_token").addEventListener("click", () => {
         $("token").value = "";
-        syncSession();
+        syncToken();
+        appState.user = null;
+        $("session_user").textContent = "未登录";
+        $("session_hint").textContent = "请先登录玩家账号";
         setOutput({});
         addLog("退出登录", "本地 token 已清空");
       });

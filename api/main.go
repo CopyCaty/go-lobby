@@ -36,9 +36,11 @@ func main() {
 	userRepo := repository.NewUserRepository(db)
 	userService := service.NewUserService(userRepo, jwtManager)
 	userHandler := handler.NewUserHandler(userService)
+	roomService := service.NewRoomService()
+	roomHandler := handler.NewRoomHandler(roomService)
 	matchRepo := repository.NewMatchRepository(db)
 	matchService := service.NewMatchService(matchRepo)
-	matchQueueService := service.NewMatchQueueService(matchService)
+	matchQueueService := service.NewMatchQueueService(matchService, roomService)
 	matchHandler := handler.NewMatchQueueHandler(matchQueueService)
 
 	r := gin.Default()
@@ -65,6 +67,11 @@ func main() {
 					queueGroup.GET("/status", matchHandler.Status)
 					queueGroup.POST("/cancel", matchHandler.Cancel)
 				}
+			}
+			roomGroup := authGroup.Group("/room")
+			{
+				roomGroup.GET("/:id", roomHandler.GetRoom)
+				roomGroup.POST("/:id/ready", roomHandler.Ready)
 			}
 
 		}
