@@ -83,6 +83,9 @@ func (s *UserService) GetMe(ctx context.Context, userID int64) (*res.UserDetailR
 	if err != nil {
 		return nil, err
 	}
+	if user == nil {
+		return nil, errors.New("用户不存在")
+	}
 	return &res.UserDetailResponse{
 		UserName: user.UserName,
 		Nickname: user.Nickname,

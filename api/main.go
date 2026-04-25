@@ -29,12 +29,16 @@ func main() {
 	}
 	defer db.Close()
 
+	gin.SetMode(gin.DebugMode)
+
 	jwtManager := auth.NewJWTManager(cfg.JWT.Secret, time.Duration(cfg.JWT.ExpireSec)*time.Second)
 
 	userRepo := repository.NewUserRepository(db)
 	userService := service.NewUserService(userRepo, jwtManager)
 	userHandler := handler.NewUserHandler(userService)
-	matchQueueService := service.NewMatchQueueService()
+	matchRepo := repository.NewMatchRepository(db)
+	matchService := service.NewMatchService(matchRepo)
+	matchQueueService := service.NewMatchQueueService(matchService)
 	matchHandler := handler.NewMatchQueueHandler(matchQueueService)
 
 	r := gin.Default()

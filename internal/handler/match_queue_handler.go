@@ -80,7 +80,7 @@ func (h *MatchQueueHandler) Status(c *gin.Context) {
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{
 			"code":    500,
-			"message": "取消匹配失败",
+			"message": "查询匹配失败",
 		})
 		return
 	}

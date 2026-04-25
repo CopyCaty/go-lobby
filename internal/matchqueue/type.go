@@ -18,23 +18,27 @@ type MatchedTeam struct {
 
 type MatchQueueResult struct {
 	RoomID string        `json:"room_id"`
+	Mode   string        `json:"mode"`
 	Teams  []MatchedTeam `json:"teams"`
 }
 
 type QueueEntry struct {
 	UserID      int64
-	UserNae     string
+	UserName    string
 	Mode        string
 	EnqueueTime time.Time
 	TicketID    string
 }
 
 type QueueUserState struct {
-	UserID    int64
-	Mode      string
-	Status    QueueStatus
-	TicketID  string
-	RoomID    string
-	Teams     []MatchedTeam
-	UpdatedAt time.Time
+	UserID      int64
+	UserName    string
+	Mode        string
+	Status      QueueStatus
+	MatchID     int64
+	TicketID    string
+	RoomID      string
+	Teams       []MatchedTeam
+	EnqueueTime time.Time
+	UpdatedAt   time.Time
 }

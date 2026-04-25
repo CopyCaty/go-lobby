@@ -16,12 +16,14 @@ type MatchQueueService struct {
 	mu     sync.Mutex
 	queues map[string][]*matchqueue.QueueEntry
 	users  map[int64]*matchqueue.QueueUserState
+	ms     *MatchService
 }
 
-func NewMatchQueueService() *MatchQueueService {
+func NewMatchQueueService(ms *MatchService) *MatchQueueService {
 	return &MatchQueueService{
 		queues: make(map[string][]*matchqueue.QueueEntry),
 		users:  make(map[int64]*matchqueue.QueueUserState),
+		ms:     ms,
 	}
 }
 
@@ -60,15 +62,35 @@ func (s *MatchQueueService) Join(ctx context.Context, userID int64, req *req.Joi
 	}
 
 	s.users[userID] = &matchqueue.QueueUserState{
-		UserID:    userID,
-		Mode:      mode,
-		Status:    matchqueue.QueueStatusMatching,
-		TicketID:  ticketID,
-		UpdatedAt: now,
+		UserID:      userID,
+		Mode:        mode,
+		Status:      matchqueue.QueueStatusMatching,
+		TicketID:    ticketID,
+		UpdatedAt:   now,
+		EnqueueTime: now,
 	}
 	s.queues[mode] = append(s.queues[mode], entry)
-	s.TryMatch(mode)
+	matchTeams, roomID := s.FindMatchGroup(ctx, mode)
+	if matchTeams == nil {
+		userState, ok := s.users[userID]
+		if !ok {
+			return nil, errors.New("队列状态异常")
+		}
+		return s.buildJoinResponse(userState), nil
+	}
+	fmt.Println("Match Found!")
 
+	matchID, err := s.ms.CreateMatchFromQueue(ctx, &matchqueue.MatchQueueResult{
+		RoomID: roomID,
+		Mode:   mode,
+		Teams:  matchTeams,
+	})
+	if err != nil {
+		fmt.Println("Create Match From Queue Failed!")
+		s.restoreMatchedUsers(matchTeams, mode)
+		return nil, errors.New("创建比赛失败")
+	}
+	s.updateUserStateToMatched(matchTeams, roomID, matchID)
 	userState, ok := s.users[userID]
 	if !ok {
 		return nil, errors.New("队列状态异常")
@@ -77,7 +99,8 @@ func (s *MatchQueueService) Join(ctx context.Context, userID int64, req *req.Joi
 }
 
 func (s *MatchQueueService) Status(ctx context.Context, userID int64) (*res.StatusMatchQueueResponse, error) {
-
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	status, ok := s.users[userID]
 	if !ok {
 		return nil, errors.New("匹配状态不存在")
@@ -130,31 +153,55 @@ func (s *MatchQueueService) buildJoinResponse(state *matchqueue.QueueUserState) 
 	}
 }
 
-func (s *MatchQueueService) TryMatch(mode string) {
+func (s *MatchQueueService) FindMatchGroup(ctx context.Context, mode string) ([]matchqueue.MatchedTeam, string) {
 	queue := s.queues[mode]
 	required := getPlayerCount(mode)
 	if required <= 0 {
-		return
+		return nil, ""
 	}
 	if len(queue) < int(required) {
-		return
+		return nil, ""
 	}
 	matchedEntries := queue[:required]
 	remainEntries := queue[required:]
 	s.queues[mode] = remainEntries
 	roomID := generateRoomID()
-	now := time.Now()
 	teams := buildTeams(mode, matchedEntries)
-	for _, entry := range matchedEntries {
-		state, ok := s.users[entry.UserID]
-		if !ok {
-			continue
+	return teams, roomID
+}
+
+func (s *MatchQueueService) updateUserStateToMatched(teams []matchqueue.MatchedTeam, roomID string, matchID int64) {
+	now := time.Now()
+	for _, team := range teams {
+		for _, userID := range team.UserIDs {
+			state, ok := s.users[userID]
+			if !ok {
+				continue
+			}
+			state.Status = matchqueue.QueueStatusMatched
+			state.RoomID = roomID
+			state.MatchID = matchID
+			state.Teams = teams
+			state.UpdatedAt = now
 		}
-		state.Status = matchqueue.QueueStatusMatched
-		state.RoomID = roomID
-		state.Teams = teams
-		state.UpdatedAt = now
 	}
+}
+
+func (s *MatchQueueService) restoreMatchedUsers(teams []matchqueue.MatchedTeam, mode string) {
+	queue := s.queues[mode]
+	for _, team := range teams {
+		for _, userID := range team.UserIDs {
+			userState := s.users[userID]
+			queue = append(queue, &matchqueue.QueueEntry{
+				UserID:      userID,
+				UserName:    userState.UserName,
+				Mode:        mode,
+				EnqueueTime: userState.EnqueueTime,
+				TicketID:    userState.TicketID,
+			})
+		}
+	}
+	s.queues[mode] = queue
 }
 
 func (s *MatchQueueService) removeFromQueue(mode string, userID int64) {

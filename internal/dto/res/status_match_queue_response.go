@@ -7,6 +7,7 @@ import (
 
 type StatusMatchQueueResponse struct {
 	UserID    int64                    `json:"user_id"`
+	MatchID   int64                    `json:"match_id,omitempty"`
 	Mode      string                   `json:"mode"`
 	Status    matchqueue.QueueStatus   `json:"status"`
 	TicketID  string                   `json:"ticket_id"`
