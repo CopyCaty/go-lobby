@@ -1,6 +1,7 @@
 package ws
 
 import (
+	"encoding/json"
 	"time"
 
 	"github.com/gorilla/websocket"
@@ -45,7 +46,19 @@ func (c *Client) ReadPump() {
 		if err != nil {
 			break
 		}
-		c.Hub.BroadcastToRoom(c.RoomID, data)
+		var msg ClientMessage
+		if err := json.Unmarshal(data, &msg); err != nil {
+			c.SendError("json格式错误")
+			continue
+		}
+		switch msg.Type {
+		case "ping":
+			c.SendJSON(ServerMessage{Type: "pong"})
+		case "chat":
+			c.Hub.BroadcastToRoom(c.RoomID, data)
+		default:
+			c.SendError("未知的消息类型")
+		}
 	}
 }
 
@@ -73,4 +86,17 @@ func (c *Client) WritePump() {
 			}
 		}
 	}
+}
+
+func (c *Client) SendJSON(msg ServerMessage) {
+	data, _ := EncodeServerMessage(msg)
+	c.Send <- data
+}
+
+func (c *Client) SendError(code string) {
+	msg := ServerMessage{
+		Type:  "error",
+		Error: code,
+	}
+	c.SendJSON(msg)
 }
