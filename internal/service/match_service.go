@@ -83,7 +83,7 @@ func (s *MatchService) SetMatchResult(ctx context.Context, matchID int64, winTea
 		ctx,
 		event.MatchResultFinishedRoutingKey,
 		&event.MatchResultFinishedEvent{
-			EventID:    fmt.Sprintf("evt_%s", matchID),
+			EventID:    fmt.Sprintf("evt_%d", matchID),
 			MatchID:    matchID,
 			WinTeamNo:  winTeamNo,
 			Mode:       match.Mode,

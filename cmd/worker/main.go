@@ -5,8 +5,11 @@ import (
 	"encoding/json"
 	"go-lobby/config"
 	"go-lobby/internal/event"
+	"go-lobby/internal/repository"
+	"go-lobby/internal/service"
 	"log"
 
+	"github.com/jmoiron/sqlx"
 	amqp "github.com/rabbitmq/amqp091-go"
 )
 
@@ -15,14 +18,30 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
+	db, err := sqlx.Connect(
+		cfg.Database.Type,
+		cfg.Database.DSN,
+	)
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer db.Close()
+
+	matchRepo := repository.NewMatchRepository(db)
+	rankRepo := repository.NewRankRepository(db)
+	rankService := service.NewRankService(rankRepo, matchRepo)
+
 	conn, err := amqp.Dial(cfg.RabbitMQ.URL)
 	if err != nil {
 		log.Fatal(err)
 	}
+	defer conn.Close()
 	ch, err := conn.Channel()
 	if err != nil {
 		_ = conn.Close()
+		log.Fatal(err)
 	}
+	defer ch.Close()
 	if err := ch.ExchangeDeclare(
 		cfg.RabbitMQ.Exchange,
 		"direct",
@@ -90,9 +109,12 @@ func main() {
 			evt.Mode,
 			evt.WinTeamNo,
 		)
-		if err := msg.Ack(false); err != nil {
-			log.Printf("ack失败 %v", err)
+		if err := rankService.SettleMatchResult(ctx, &evt); err != nil {
+			log.Printf("处理比赛结果失败: %v", err)
+			_ = msg.Nack(false, true)
+			continue
 		}
+		_ = msg.Ack(false)
 	}
 
 }
