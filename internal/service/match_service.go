@@ -4,18 +4,24 @@ import (
 	"context"
 	"fmt"
 	"go-lobby/internal/dto/res"
+	"go-lobby/internal/event"
 	"go-lobby/internal/matchqueue"
 	"go-lobby/internal/model"
+	"go-lobby/internal/mq"
 	"go-lobby/internal/repository"
 	"time"
 )
 
 type MatchService struct {
-	repo *repository.MatchRepository
+	repo      *repository.MatchRepository
+	publisher *mq.Publisher
 }
 
-func NewMatchService(repo *repository.MatchRepository) *MatchService {
-	return &MatchService{repo: repo}
+func NewMatchService(repo *repository.MatchRepository, publisher *mq.Publisher) *MatchService {
+	return &MatchService{
+		repo:      repo,
+		publisher: publisher,
+	}
 }
 
 func (s *MatchService) CreateMatchFromQueue(ctx context.Context, matchResult *matchqueue.MatchQueueResult) (int64, error) {
@@ -70,6 +76,20 @@ func (s *MatchService) SetMatchResult(ctx context.Context, matchID int64, winTea
 	now := time.Now()
 	match.FinishedAt = &now
 	_, err = s.repo.UpdateMatch(ctx, match)
+	if err != nil {
+		return err
+	}
+	err = s.publisher.PublishJSON(
+		ctx,
+		event.MatchResultFinishedRoutingKey,
+		&event.MatchResultFinishedEvent{
+			EventID:    fmt.Sprintf("evt_%s", matchID),
+			MatchID:    matchID,
+			WinTeamNo:  winTeamNo,
+			Mode:       match.Mode,
+			OccurredAt: time.Now(),
+		},
+	)
 	return err
 }
 

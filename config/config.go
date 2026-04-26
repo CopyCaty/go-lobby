@@ -11,6 +11,7 @@ type Config struct {
 	Database DatabaseConfig `yaml:"database"`
 	JWT      JWTConfig      `yaml:"jwt"`
 	Redis    RedisConfig    `yaml:"redis"`
+	RabbitMQ RabbitMQConfig `yaml:"rabbitmq"`
 }
 
 type ServerConfig struct {
@@ -31,6 +32,12 @@ type RedisConfig struct {
 	Addr     string `yaml:"addr"`
 	Password string `yaml:"password"`
 	DB       int    `yaml:"db"`
+}
+
+type RabbitMQConfig struct {
+	URL              string `yaml:"url"`
+	Exchange         string `yaml:"exchange"`
+	MatchResultQueue string `yaml:"match_result_queue"`
 }
 
 func Load(path string) (*Config, error) {

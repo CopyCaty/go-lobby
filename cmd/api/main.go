@@ -7,6 +7,7 @@ import (
 	"go-lobby/internal/cache"
 	"go-lobby/internal/handler"
 	"go-lobby/internal/middleware"
+	"go-lobby/internal/mq"
 	"go-lobby/internal/repository"
 	"go-lobby/internal/service"
 	"go-lobby/internal/ws"
@@ -40,6 +41,12 @@ func main() {
 
 	gin.SetMode(gin.DebugMode)
 
+	publisher, err := mq.NewPublisher(cfg.RabbitMQ)
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer publisher.Close()
+
 	jwtManager := auth.NewJWTManager(cfg.JWT.Secret, time.Duration(cfg.JWT.ExpireSec)*time.Second)
 
 	userRepo := repository.NewUserRepository(db)
@@ -49,7 +56,7 @@ func main() {
 	roomService := service.NewRoomService()
 	roomHandler := handler.NewRoomHandler(roomService, roomHub)
 	matchRepo := repository.NewMatchRepository(db)
-	matchService := service.NewMatchService(matchRepo)
+	matchService := service.NewMatchService(matchRepo, publisher)
 
 	matchQueueRepo := repository.NewMatchQueueRepository(redisClient)
 	matchQueueService := service.NewMatchQueueService(matchService, roomService, matchQueueRepo)
