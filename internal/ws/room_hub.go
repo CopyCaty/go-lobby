@@ -2,48 +2,62 @@ package ws
 
 import (
 	"sync"
-
-	"github.com/gorilla/websocket"
 )
 
 type RoomHub struct {
 	mu    sync.RWMutex
-	rooms map[string]map[int64]*websocket.Conn
+	rooms map[string]map[int64]*Client
 }
 
 func NewRoomHub() *RoomHub {
 	return &RoomHub{
-		rooms: make(map[string]map[int64]*websocket.Conn),
+		rooms: make(map[string]map[int64]*Client),
 	}
 }
 
-func (h *RoomHub) JoinRoom(roomID string, userID int64, conn *websocket.Conn) {
+func (h *RoomHub) JoinRoom(client *Client) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
-	if h.rooms[roomID] == nil {
-		h.rooms[roomID] = make(map[int64]*websocket.Conn)
+	if h.rooms[client.RoomID] == nil {
+		h.rooms[client.RoomID] = make(map[int64]*Client)
 	}
-	h.rooms[roomID][userID] = conn
+	h.rooms[client.RoomID][client.UserID] = client
 }
 
-func (h *RoomHub) LeaveRoom(roomID string, userID int64) {
+func (h *RoomHub) LeaveRoom(client *Client) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
-	if h.rooms[roomID] != nil {
-		delete(h.rooms[roomID], userID)
-		if len(h.rooms[roomID]) == 0 {
-			delete(h.rooms, roomID)
+	room := h.rooms[client.RoomID]
+	if room == nil {
+		return
+	}
+	if h.rooms[client.RoomID] != nil {
+		if room[client.UserID] == client {
+			delete(room, client.UserID)
+			close(client.Send)
+		}
+		if len(h.rooms[client.RoomID]) == 0 {
+			delete(h.rooms, client.RoomID)
 		}
 	}
 }
 
 func (h *RoomHub) BroadcastToRoom(roomID string, message []byte) {
-	h.mu.RLock()
-	defer h.mu.RUnlock()
-
-	if h.rooms[roomID] != nil {
-		for _, conn := range h.rooms[roomID] {
-			conn.WriteMessage(websocket.TextMessage, message)
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	room := h.rooms[roomID]
+	if room == nil {
+		return
+	}
+	for _, client := range room {
+		select {
+		case client.Send <- message:
+		default:
+			delete(room, client.UserID)
+			close(client.Send)
 		}
+	}
+	if len(room) == 0 {
+		delete(h.rooms, roomID)
 	}
 }

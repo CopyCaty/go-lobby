@@ -59,16 +59,9 @@ func (h *WSHandler) JoinRoom(c *gin.Context) {
 		})
 		return
 	}
-	h.rh.JoinRoom(roomID, userID, conn)
-	defer func() {
-		conn.Close()
-		h.rh.LeaveRoom(roomID, userID)
-	}()
-	for {
-		_, data, err := conn.ReadMessage()
-		if err != nil {
-			break
-		}
-		h.rh.BroadcastToRoom(roomID, data)
-	}
+	client := ws.NewClient(h.rh, roomID, userID, conn)
+	h.rh.JoinRoom(client)
+
+	go client.WritePump()
+	client.ReadPump()
 }
