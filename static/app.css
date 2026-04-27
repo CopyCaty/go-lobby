@@ -267,6 +267,42 @@ button:disabled {
   margin-top: 14px;
 }
 
+.leaderboard-list {
+  display: grid;
+  gap: 8px;
+  margin-top: 14px;
+}
+
+.leaderboard-item,
+.leaderboard-empty {
+  display: grid;
+  grid-template-columns: 56px 1fr auto;
+  gap: 10px;
+  align-items: center;
+  border: 1px solid rgba(148, 163, 184, 0.16);
+  border-radius: 14px;
+  background: rgba(2, 6, 23, 0.38);
+  padding: 10px 12px;
+}
+
+.leaderboard-item strong {
+  color: #fde68a;
+}
+
+.leaderboard-item span,
+.leaderboard-empty {
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.leaderboard-item b {
+  color: #bbf7d0;
+}
+
+.leaderboard-empty {
+  grid-template-columns: 1fr;
+}
+
 pre {
   margin: 0;
   max-height: 420px;

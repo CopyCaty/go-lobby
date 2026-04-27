@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"fmt"
+	"go-lobby/internal/dto/res"
 	"go-lobby/internal/event"
 	"go-lobby/internal/model"
 	"go-lobby/internal/repository"
@@ -10,15 +11,21 @@ import (
 )
 
 type RankService struct {
-	mu        sync.Mutex
-	rankRepo  *repository.RankRepository
-	matchRepo *repository.MatchRepository
+	mu              sync.Mutex
+	rankRepo        *repository.RankRepository
+	matchRepo       *repository.MatchRepository
+	leaderboardRepo *repository.LeaderboardRepository
 }
 
-func NewRankService(rankRepo *repository.RankRepository, matchRepo *repository.MatchRepository) *RankService {
+func NewRankService(
+	rankRepo *repository.RankRepository,
+	matchRepo *repository.MatchRepository,
+	leaderboardRepo *repository.LeaderboardRepository,
+) *RankService {
 	return &RankService{
-		rankRepo:  rankRepo,
-		matchRepo: matchRepo,
+		rankRepo:        rankRepo,
+		matchRepo:       matchRepo,
+		leaderboardRepo: leaderboardRepo,
 	}
 }
 
@@ -67,10 +74,52 @@ func (s *RankService) SettleMatchResult(ctx context.Context, evt *event.MatchRes
 			loseCount,
 		)
 		if err != nil {
-			tx.Rollback()
+			_ = tx.Rollback()
 			return fmt.Errorf("更新玩家积分失败")
 		}
 	}
-	tx.Commit()
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("提交排行榜事务失败: %w", err)
+	}
+	for _, matchPlayer := range matchPlayers {
+		playerRank, err := s.rankRepo.GetPlayerRank(ctx, evt.Mode, matchPlayer.UserID)
+		if err != nil {
+			return fmt.Errorf("查询玩家积分失败: %w", err)
+		}
+		if playerRank == nil {
+			continue
+		}
+		if err := s.leaderboardRepo.SetPlayerScore(ctx, evt.Mode, matchPlayer.UserID, playerRank.Score); err != nil {
+			return fmt.Errorf("同步Redis排行榜失败: %w", err)
+		}
+	}
 	return nil
+}
+
+func (s *RankService) GetLeaderboard(ctx context.Context, mode string, limit int64) (*res.LeaderboardResponse, error) {
+	if mode == "" {
+		return nil, fmt.Errorf("mode 不能为空")
+	}
+	if limit <= 0 {
+		limit = 20
+	}
+	if limit > 100 {
+		limit = 100
+	}
+	items, err := s.leaderboardRepo.ListTopN(ctx, mode, limit)
+	if err != nil {
+		return nil, fmt.Errorf("查询排行榜失败: %w", err)
+	}
+	respItems := make([]res.LeaderboardItemResponse, 0, len(items))
+	for i, item := range items {
+		respItems = append(respItems, res.LeaderboardItemResponse{
+			Rank:   i + 1,
+			UserID: item.UserID,
+			Score:  item.Score,
+		})
+	}
+	return &res.LeaderboardResponse{
+		Mode:  mode,
+		Items: respItems,
+	}, nil
 }

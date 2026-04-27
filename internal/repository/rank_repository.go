@@ -2,6 +2,7 @@ package repository
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"go-lobby/internal/model"
 
@@ -78,4 +79,20 @@ func IsDuplicateKeyError(err error) bool {
 		return mysqlErr.Number == mysqlDuplicateEntryError
 	}
 	return false
+}
+
+func (r *RankRepository) GetPlayerRank(ctx context.Context, mode string, userID int64) (*model.PlayerRank, error) {
+	var result model.PlayerRank
+	err := r.db.GetContext(ctx, &result, `
+		SELECT id, mode, user_id, score, win_count, lose_count, match_count, created_at, updated_at
+		FROM gl_player_rank
+		WHERE mode = ? AND user_id = ?
+	`, mode, userID)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &result, nil
 }

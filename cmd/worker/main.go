@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"go-lobby/config"
+	"go-lobby/internal/cache"
 	"go-lobby/internal/event"
 	"go-lobby/internal/repository"
 	"go-lobby/internal/service"
@@ -27,9 +28,16 @@ func main() {
 	}
 	defer db.Close()
 
+	redisClient := cache.NewRedisClient(&cfg.Redis)
+	if err := cache.PingRedis(context.Background(), redisClient); err != nil {
+		log.Fatal(err)
+	}
+	defer redisClient.Close()
+
+	leaderboardRepo := repository.NewLeaderboardRepository(redisClient)
 	matchRepo := repository.NewMatchRepository(db)
 	rankRepo := repository.NewRankRepository(db)
-	rankService := service.NewRankService(rankRepo, matchRepo)
+	rankService := service.NewRankService(rankRepo, matchRepo, leaderboardRepo)
 
 	conn, err := amqp.Dial(cfg.RabbitMQ.URL)
 	if err != nil {

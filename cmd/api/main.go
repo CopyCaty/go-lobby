@@ -63,6 +63,11 @@ func main() {
 	matchQueueHandler := handler.NewMatchQueueHandler(matchQueueService)
 	matchHandler := handler.NewMatchHandler(matchService)
 
+	rankRepo := repository.NewRankRepository(db)
+	leaderboardRepo := repository.NewLeaderboardRepository(redisClient)
+	rankService := service.NewRankService(rankRepo, matchRepo, leaderboardRepo)
+	leaderboardHandler := handler.NewLeaderboardHandler(rankService)
+
 	r := gin.Default()
 
 	// Static test page for local manual testing.
@@ -77,6 +82,7 @@ func main() {
 		authGroup := v1.Group("/")
 		authGroup.Use(middleware.AuthMiddleware(jwtManager))
 		{
+			authGroup.GET("/leaderboard", leaderboardHandler.Top)
 			wsGroup := authGroup.Group("/ws")
 			{
 				wsHandler := handler.NewWSHandler(roomService, roomHub)

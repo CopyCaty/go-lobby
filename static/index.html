@@ -187,6 +187,32 @@
               </div>
             </div>
           </section>
+          <section class="card">
+            <div class="card-head">
+              <h2>排行榜</h2>
+              <p>查询 Redis 排行榜 TopN，展示当前模式下的玩家积分。</p>
+            </div>
+            <div class="card-body">
+              <div class="row">
+                <div>
+                  <label for="leaderboard_mode">排行榜模式</label>
+                  <select id="leaderboard_mode">
+                    <option value="1v1">1v1</option>
+                    <option value="2v2">2v2</option>
+                  </select>
+                </div>
+                <div>
+                  <label for="leaderboard_limit">显示数量</label>
+                  <input id="leaderboard_limit" type="number" min="1" max="100" value="20" />
+                </div>
+              </div>
+              <div class="actions">
+                <button id="leaderboard_submit" type="button">查询排行榜</button>
+                <span id="leaderboard_status" class="badge">未查询</span>
+              </div>
+              <div id="leaderboard_items" class="leaderboard-list"></div>
+            </div>
+          </section>
         </main>
 
         <aside class="stack">

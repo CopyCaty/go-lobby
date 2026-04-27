@@ -8,6 +8,7 @@ const appState = {
   queue: null,
   room: null,
   match: null,
+  leaderboard: null,
   ws: null,
 };
 
@@ -167,6 +168,41 @@ function syncMatchView(data) {
 
   const status = String(match.status ?? "-");
   setBadge("match_status", `status=${status}`, status === "2" || match.finished_at ? "ok" : "warn");
+}
+
+function syncLeaderboardView(data) {
+  const payload = payloadOf(data);
+  if (!payload) return;
+
+  appState.leaderboard = payload;
+  const items = payload.items || [];
+  const container = $("leaderboard_items");
+  container.innerHTML = "";
+
+  if (!items.length) {
+    const empty = document.createElement("div");
+    empty.className = "leaderboard-empty";
+    empty.textContent = "暂无排行榜数据";
+    container.appendChild(empty);
+    setBadge("leaderboard_status", "空榜", "warn");
+    return;
+  }
+
+  items.forEach((item, index) => {
+    const row = document.createElement("div");
+    row.className = "leaderboard-item";
+    const rank = item.rank ?? index + 1;
+    const userID = item.user_id ?? item.userID ?? "-";
+    const score = item.score ?? 0;
+    row.innerHTML = `
+      <strong>#${rank}</strong>
+      <span>user_id=${userID}</span>
+      <b>${score}</b>
+    `;
+    container.appendChild(row);
+  });
+
+  setBadge("leaderboard_status", `${items.length} 条`, "ok");
 }
 
 async function registerUser() {
@@ -344,6 +380,25 @@ async function submitMatchResult() {
   return data;
 }
 
+async function getLeaderboard() {
+  const mode = $("leaderboard_mode").value;
+  const limit = Number($("leaderboard_limit").value || 20);
+  setBadge("leaderboard_status", "查询中", "warn");
+
+  const params = new URLSearchParams({
+    mode,
+    limit: String(limit),
+  });
+  const data = await apiRequest("查询排行榜", `/api/v1/leaderboard?${params.toString()}`, {
+    method: "GET",
+    headers: authHeaders(),
+  });
+
+  syncLeaderboardView(data);
+  addLog("查询排行榜", `${mode}, limit=${limit}`);
+  return data;
+}
+
 function fillSample() {
   const suffix = Math.random().toString(16).slice(2, 8);
   $("user_name").value = "player_" + suffix;
@@ -467,6 +522,7 @@ function bind(id, fn) {
       if (id.includes("queue")) setBadge("queue_status", "失败", "bad");
       if (id.includes("room")) setBadge("room_status", "失败", "bad");
       if (id.includes("match")) setBadge("match_status", "失败", "bad");
+      if (id.includes("leaderboard")) setBadge("leaderboard_status", "失败", "bad");
       if (id.includes("login") || id.includes("register")) setBadge("account_status", "失败", "bad");
       if (id.includes("ws")) {
         setBadge("ws_status", "失败", "bad");
@@ -497,6 +553,7 @@ bind("use_current_room", useCurrentRoom);
 bind("match_submit", getMatchInfo);
 bind("match_result_submit", submitMatchResult);
 bind("use_current_match", useCurrentMatch);
+bind("leaderboard_submit", getLeaderboard);
 bind("ws_connect_submit", connectWS);
 bind("ws_send_submit", sendWSMessage);
 bind("ws_disconnect_submit", disconnectWS);
