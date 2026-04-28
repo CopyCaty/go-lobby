@@ -9,6 +9,11 @@ services:
       - "3305:3306"
     volumes:
       - mysql_data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-uroot", "-p123456"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
 
   redis:
     image: redis:7
@@ -34,9 +39,12 @@ services:
     volumes:
       - ./config.docker.yaml:/app/config.yaml:ro
     depends_on:
-      - mysql
-      - redis
-      - rabbitmq
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_started
+      rabbitmq:
+        condition: service_started
   worker:
     build: .
     container_name: go-lobby-worker
@@ -44,9 +52,12 @@ services:
     volumes:
       - ./config.docker.yaml:/app/config.yaml:ro
     depends_on:
-      - mysql
-      - redis
-      - rabbitmq
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_started
+      rabbitmq:
+        condition: service_started
 
 
 volumes:

@@ -1,4 +1,4 @@
-FROM golang:1.22-alpine AS builder
+FROM golang:1.25-alpine AS builder
 WORKDIR /app
 RUN apk add --no-cache ca-certificates tzdata git
 COPY go.mod go.sum ./
@@ -12,4 +12,4 @@ WORKDIR /app
 RUN apk add --no-cache ca-certificates tzdata
 COPY --from=builder /out/api /app/api
 COPY --from=builder /out/worker /app/worker
-# 运行时会通过 compose 把 config.yaml 挂载进来
+COPY --from=builder /app/static /app/static
