@@ -1,63 +1,42 @@
 # go-lobby
-go 轻量 匹配大厅后端
+Go 轻量匹配大厅（简历技术 Demo）
 
-一个面向游戏后端场景的轻量级竞技大厅服务 Demo，支持玩家登录鉴权、1v1 匹配、房间状态同步、比赛结算与赛季排行榜，项目使用 Go 实现，并结合 Redis、MySQL、RabbitMQ、gRPC、Docker 与 Kubernetes
+面向“登录鉴权 → 匹配 → 房间 → 结算 → 排行榜”的最小闭环 Demo：
+- API（Gin）提供 HTTP / WebSocket 接口
+- Redis 用于匹配队列与排行榜
+- MySQL 持久化用户/比赛/积分
+- RabbitMQ + Worker 做异步结算
 
-功能特性
-玩家登录（JWT 鉴权）
-1v1 匹配队列
-自动创建对战房间
-WebSocket 房间状态同步
-比赛结果提交与幂等结算
-赛季排行榜（TopN / 周边排名）
-异步任务处理（结算 → 排行榜更新）
+## 已实现 / 待完善
 
-技术栈：
-Go
-Gin（HTTP API）
-gRPC（内部服务通信）
-MySQL（持久化）
-Redis（缓存 / 队列 / 排行榜）
-RabbitMQ（消息队列）
-WebSocket
-Docker / Docker Compose
-系统架构
+| 已实现（当前代码已有） | 待完善（扩展方向） |
+| --- | --- |
+| 用户注册、登录（JWT 鉴权） | Refresh Token / 黑名单 / 踢下线等完善 |
+| 1v1 / 2v2 匹配队列（Redis） | 更复杂匹配策略（分段/超时/并发一致性） |
+| 匹配成功创建比赛与房间（MySQL + 内存房间状态） | 房间状态持久化、多实例一致性（扩展方向） |
+| WebSocket 房间内状态推送（当前用于 ready 广播） | 更完整 WS 协议（snapshot/增量/重连/心跳） |
+| 比赛结果提交（API）→ RabbitMQ → Worker 异步结算 | 重试/死信队列/可观测性等工程化完善 |
+| 积分结算 + Redis 排行榜 TopN | 周边排名/分页/赛季等能力扩展 |
+| `docker-compose` 一键启动 MySQL/Redis/RabbitMQ | 部署（K8s/服务拆分/gRPC）作为后续扩展点 |
+| `static/` 本地手工测试页（`/`） | 更完整前端交互与自动化测试 |
 
-整体为简化的服务拆分结构：
-API Service：对外提供 HTTP / WebSocket 接口
-Core Service：处理匹配、房间、排行榜等核心逻辑
-Worker Service：消费消息队列，执行异步任务
+## 主要接口（摘要）
 
-核心设计
-Redis 使用
-匹配队列：queue:season:{sid}:1v1
-房间状态：room:{rid}:state
-排行榜：leaderboard:season:{sid}（Sorted Set）
+- `POST /api/v1/users/register`
+- `POST /api/v1/users/login`
+- `GET /api/v1/me`
+- `POST /api/v1/match/queue/join`
+- `GET /api/v1/match/queue/status`
+- `POST /api/v1/match/queue/cancel`
+- `GET /api/v1/room/:id`
+- `POST /api/v1/room/:id/ready`
+- `GET /api/v1/ws/room/:id`（WebSocket）
+- `POST /api/v1/match/result`
+- `GET /api/v1/leaderboard`
 
-排行榜基于分数排序，支持：
-TopN 查询
-玩家当前排名
-周边排名
-匹配机制
-玩家加入 Redis 队列
-后台轮询或触发匹配
-成功后创建 match 和 room
-返回房间信息
+## 技术栈（当前用到）
 
-房间同步
-
-通过 WebSocket 实现：
-初始状态下发（snapshot）
-玩家事件上报（ready / action / end）
-服务端广播房间状态
-结算流程
-客户端提交比赛结果
-服务校验幂等 key
-写入数据库
-发送 MQ 事件
-Worker 更新排行榜
-一致性策略
-数据库为最终数据来源
-Redis 为读优化层
-使用幂等 key 防止重复结算
-排行榜采用异步更新（最终一致）
+- Go / Gin
+- MySQL / Redis / RabbitMQ
+- WebSocket
+- Docker Compose
