@@ -25,6 +25,28 @@ services:
     environment:
       RABBITMQ_DEFAULT_USER: guest
       RABBITMQ_DEFAULT_PASS: guest
+  api:
+    build: .
+    container_name: go-lobby-api
+    command: ["/app/api"]
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./config.docker.yaml:/app/config.yaml:ro
+    depends_on:
+      - mysql
+      - redis
+      - rabbitmq
+  worker:
+    build: .
+    container_name: go-lobby-worker
+    command: ["/app/worker"]
+    volumes:
+      - ./config.docker.yaml:/app/config.yaml:ro
+    depends_on:
+      - mysql
+      - redis
+      - rabbitmq
 
 
 volumes:

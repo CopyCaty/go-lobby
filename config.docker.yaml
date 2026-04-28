@@ -1,0 +1,20 @@
+server:
+  addr: ":8080"
+
+database:
+  type: "mysql"
+  dsn: "root:123456@tcp(mysql:3306)/go_lobby?parseTime=true&loc=Local"
+
+jwt:
+  secret: "go-lobby-secret"
+  expire_sec: 7200
+
+redis:
+  addr: "redis:6379"
+  password: ""
+  db: 0
+
+rabbitmq:
+  url: "amqp://guest:guest@rabbitmq:5672/"
+  exchange: "go_lobby.events"
+  match_result_queue: "go_lobby.rank.match_result"
