@@ -37,6 +37,7 @@ services:
       - mysql
       - redis
       - rabbitmq
+      - migrate
   worker:
     build: .
     container_name: go-lobby-worker
@@ -47,6 +48,21 @@ services:
       - mysql
       - redis
       - rabbitmq
+      - migrate
+  migrate:
+    image: golang:1.22-alpine
+    container_name: go-lobby-migrate
+    working_dir: /app
+    volumes:
+      - ./sql:/app/sql:ro
+    command:
+      - sh
+      - -c
+      - |
+        go install github.com/pressly/goose/v3/cmd/goose@latest &&
+        goose -dir /app/sql mysql "root:123456@tcp(mysql:3306)/go_lobby?parseTime=true&loc=Local" up
+    depends_on:
+      - mysql
 
 
 volumes:
