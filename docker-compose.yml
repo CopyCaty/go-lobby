@@ -39,13 +39,12 @@ services:
     volumes:
       - ./config.docker.yaml:/app/config.yaml:ro
     depends_on:
-      mysql:
-        condition: service_healthy
       redis:
         condition: service_started
       rabbitmq:
         condition: service_started
-      migrate
+      migrate:
+        condition: service_completed_successfully
   worker:
     build: .
     container_name: go-lobby-worker
@@ -53,14 +52,14 @@ services:
     volumes:
       - ./config.docker.yaml:/app/config.yaml:ro
     depends_on:
-      mysql:
-        condition: service_healthy
       redis:
         condition: service_started
       rabbitmq:
         condition: service_started
+      migrate:
+        condition: service_completed_successfully
   migrate:
-    image: golang:1.22-alpine
+    image: golang:1.25-alpine
     container_name: go-lobby-migrate
     working_dir: /app
     volumes:
@@ -72,7 +71,8 @@ services:
         go install github.com/pressly/goose/v3/cmd/goose@latest &&
         goose -dir /app/sql mysql "root:123456@tcp(mysql:3306)/go_lobby?parseTime=true&loc=Local" up
     depends_on:
-      - mysql
+      mysql:
+        condition: service_healthy
 
 
 volumes:
