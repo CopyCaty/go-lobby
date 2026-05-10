@@ -3,50 +3,94 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>go-lobby 接口测试</title>
+    <title>go-lobby 玩家大厅</title>
     <link rel="stylesheet" href="/static/app.css" />
   </head>
   <body>
-    <div class="layout">
-      <header>
-        <div>
-          <span class="badge ok">go-lobby MVP</span>
-          <h1>接口测试控制台</h1>
-          <p>用于测试注册、登录、匹配队列、房间、对局结果和房间 WebSocket。</p>
-        </div>
-        <div class="card session-card">
-          <div class="card-body">
-            <strong id="session_user">未登录</strong>
-            <p id="session_hint" class="session-hint">请先登录，受保护接口会使用 token。</p>
-            <textarea id="token" placeholder="JWT token"></textarea>
-            <div class="actions">
-              <button id="me_submit" class="secondary" type="button">刷新用户</button>
-              <button id="clear_token" class="danger" type="button">清空 Token</button>
-            </div>
-          </div>
-        </div>
-      </header>
+    <div class="app-shell">
+      <aside class="sidebar">
+        <a class="brand" href="#/lobby" aria-label="go-lobby 玩家大厅">
+          <span class="brand-mark">GL</span>
+          <span>
+            <strong>go-lobby</strong>
+            <em>玩家匹配大厅</em>
+          </span>
+        </a>
 
-      <section class="card summary-card">
-        <div class="card-body">
-          <div class="metrics">
-            <div class="metric"><span>队列状态</span><strong id="metric_status">-</strong></div>
-            <div class="metric"><span>房间状态</span><strong id="metric_room_status">-</strong></div>
-            <div class="metric"><span>对局 ID</span><strong id="metric_match">-</strong></div>
-            <div class="metric"><span>房间 ID</span><strong id="metric_room">-</strong></div>
-          </div>
-        </div>
-      </section>
+        <nav class="nav" aria-label="主导航">
+          <a href="#/lobby" data-route="#/lobby">大厅</a>
+          <a href="#/match" data-route="#/match">匹配</a>
+          <a href="#/room" data-route="#/room">我的房间</a>
+          <a href="#/settlement" data-route="#/settlement">战绩结算</a>
+          <a href="#/leaderboard" data-route="#/leaderboard">排行榜</a>
+          <a href="#/debug" data-route="#/debug">开发调试</a>
+        </nav>
 
-      <div class="grid">
-        <main class="stack">
-          <section class="card">
-            <div class="card-head">
-              <h2>账号入口</h2>
-              <p>创建测试玩家，或直接登录已有玩家。</p>
-            </div>
-            <div class="card-body">
-              <div class="row">
+        <section class="player-card">
+          <span class="section-label">当前玩家</span>
+          <strong id="session_user">未登录</strong>
+          <p id="session_hint">登录后可进入匹配队列。</p>
+          <span id="account_status" class="badge">未登录</span>
+        </section>
+      </aside>
+
+      <main class="main">
+        <header class="topbar">
+          <div>
+            <span id="page_kicker" class="section-label">Lobby</span>
+            <h1 id="page_title">玩家大厅</h1>
+            <p id="page_desc">登录玩家账号，进入匹配队列，完成房间准备和战绩结算。</p>
+          </div>
+          <div class="topbar-actions">
+            <span id="ws_status" class="badge">未连接</span>
+            <button id="me_submit" class="ghost" type="button">刷新状态</button>
+            <button id="logout_submit" class="danger ghost" type="button">退出登录</button>
+          </div>
+        </header>
+
+        <div id="notice" class="notice" role="status" aria-live="polite" hidden></div>
+
+        <section class="status-strip" aria-label="当前状态">
+          <div class="status-card">
+            <span>匹配状态</span>
+            <strong id="metric_status">未入队</strong>
+          </div>
+          <div class="status-card">
+            <span>房间状态</span>
+            <strong id="metric_room_status">未进入</strong>
+          </div>
+          <div class="status-card">
+            <span>对局 ID</span>
+            <strong id="metric_match">-</strong>
+          </div>
+          <div class="status-card">
+            <span>房间 ID</span>
+            <strong id="metric_room">-</strong>
+          </div>
+        </section>
+
+        <section id="view_login" class="view">
+          <div class="auth-layout">
+            <section class="auth-hero panel">
+              <span class="section-label">Player Access</span>
+              <h2>进入 go-lobby 匹配大厅</h2>
+              <p>使用测试玩家登录后，可以完整体验匹配、房间准备、对局结算和排行榜。</p>
+              <div class="hero-steps">
+                <span>注册玩家</span>
+                <span>加入匹配</span>
+                <span>进入房间</span>
+                <span>查看榜单</span>
+              </div>
+            </section>
+
+            <section class="panel auth-panel">
+              <div class="panel-head">
+                <div>
+                  <h2>玩家登录</h2>
+                  <p>可以一键生成测试玩家，也可以登录已有账号。</p>
+                </div>
+              </div>
+              <div class="form-grid">
                 <div>
                   <label for="user_name">用户名</label>
                   <input id="user_name" autocomplete="username" placeholder="player_xxxxxx" />
@@ -55,8 +99,6 @@
                   <label for="nickname">昵称</label>
                   <input id="nickname" autocomplete="nickname" placeholder="玩家_xxxxxx" />
                 </div>
-              </div>
-              <div class="row form-row">
                 <div>
                   <label for="password">注册密码</label>
                   <input id="password" type="password" autocomplete="new-password" placeholder="password_xxxxxx" />
@@ -67,109 +109,186 @@
                 </div>
               </div>
               <div class="actions">
-                <button id="fill" class="secondary" type="button">生成玩家</button>
+                <button id="fill" class="ghost" type="button">生成测试玩家</button>
                 <button id="register_submit" type="button">注册</button>
-                <button id="login_submit" type="button">登录</button>
-                <span id="account_status" class="badge">待操作</span>
+                <button id="login_submit" type="button">登录大厅</button>
               </div>
-            </div>
-          </section>
+            </section>
+          </div>
+        </section>
 
-          <section class="card">
-            <div class="card-head">
-              <h2>匹配队列</h2>
-              <p>加入匹配、刷新匹配状态，或取消当前匹配。</p>
-            </div>
-            <div class="card-body">
-              <div class="row">
-                <div>
-                  <label for="queue_mode">匹配模式</label>
-                  <select id="queue_mode">
-                    <option value="1v1">1v1</option>
-                    <option value="2v2">2v2</option>
-                  </select>
+        <section id="view_lobby" class="view active">
+          <div class="lobby-grid">
+            <section class="panel lobby-hero">
+              <div>
+                <span class="section-label">大厅</span>
+                <h2 id="lobby_welcome">欢迎来到匹配大厅</h2>
+                <p id="lobby_summary">登录后可以加入 1v1 或 2v2 队列，匹配成功后进入房间准备。</p>
+              </div>
+              <div class="lobby-actions">
+                <a class="button-like" href="#/match">开始匹配</a>
+                <a class="button-like ghost" href="#/leaderboard">查看排行榜</a>
+              </div>
+            </section>
+
+            <section class="panel">
+              <div class="panel-head">
+                <h2>我的进度</h2>
+                <span id="lobby_progress_badge" class="badge">等待登录</span>
+              </div>
+              <div class="progress-list">
+                <div class="progress-item" id="step_login">
+                  <b>1</b>
+                  <span>玩家登录</span>
                 </div>
-                <div>
-                  <label for="status_endpoint">状态接口</label>
-                  <input id="status_endpoint" value="/api/v1/match/queue/status" />
+                <div class="progress-item" id="step_queue">
+                  <b>2</b>
+                  <span>进入匹配</span>
+                </div>
+                <div class="progress-item" id="step_room">
+                  <b>3</b>
+                  <span>房间准备</span>
+                </div>
+                <div class="progress-item" id="step_result">
+                  <b>4</b>
+                  <span>战绩结算</span>
                 </div>
               </div>
-              <div class="actions">
-                <button id="join_queue_submit" type="button">加入匹配</button>
-                <button id="status_queue_submit" class="secondary" type="button">刷新状态</button>
-                <button id="cancel_queue_submit" class="danger" type="button">取消匹配</button>
+            </section>
+
+            <section class="panel">
+              <div class="panel-head">
+                <h2>最近事件</h2>
+                <span class="badge">实时</span>
+              </div>
+              <div id="dashboard_log" class="event-list compact-log"></div>
+            </section>
+
+            <section class="panel">
+              <div class="panel-head">
+                <h2>榜单摘要</h2>
+                <button id="leaderboard_quick_submit" class="ghost small" type="button">刷新</button>
+              </div>
+              <div id="lobby_leaderboard_preview" class="mini-board">暂无榜单数据</div>
+            </section>
+          </div>
+        </section>
+
+        <section id="view_match" class="view">
+          <div class="page-grid">
+            <section class="panel">
+              <div class="panel-head">
+                <div>
+                  <h2>选择匹配模式</h2>
+                  <p>选择队伍规模后进入队列，匹配成功会生成房间和对局。</p>
+                </div>
                 <span id="queue_status" class="badge">未入队</span>
               </div>
-            </div>
-          </section>
 
-          <section class="card">
-            <div class="card-head">
-              <h2>房间状态</h2>
-              <p>查询房间状态，并将当前玩家标记为已准备。</p>
-            </div>
-            <div class="card-body">
-              <div class="row">
+              <div class="mode-grid">
+                <button class="mode-card active" type="button" data-mode="1v1">
+                  <strong>1v1</strong>
+                  <span>快速单挑，适合演示完整闭环。</span>
+                </button>
+                <button class="mode-card" type="button" data-mode="2v2">
+                  <strong>2v2</strong>
+                  <span>多人组队，适合展示队伍结构。</span>
+                </button>
+              </div>
+              <input id="queue_mode" type="hidden" value="1v1" />
+
+              <div class="actions">
+                <button id="join_queue_submit" type="button">进入匹配</button>
+                <button id="status_queue_submit" class="ghost" type="button">刷新状态</button>
+                <button id="cancel_queue_submit" class="danger ghost" type="button">取消匹配</button>
+              </div>
+            </section>
+
+            <section class="panel">
+              <div class="panel-head">
+                <h2>匹配结果</h2>
+                <span id="selected_mode_badge" class="badge">1v1</span>
+              </div>
+              <div id="queue_result_card" class="result-card">
+                <strong>尚未进入队列</strong>
+                <p>点击“进入匹配”后，这里会显示队列状态、房间 ID 和对局 ID。</p>
+              </div>
+              <div class="actions">
+                <a class="button-like ghost" href="#/room">前往我的房间</a>
+              </div>
+            </section>
+          </div>
+        </section>
+
+        <section id="view_room" class="view">
+          <div class="page-grid">
+            <section class="panel">
+              <div class="panel-head">
+                <div>
+                  <h2>我的房间</h2>
+                  <p>匹配成功后进入房间，查看队伍和准备状态。</p>
+                </div>
+                <span id="room_status" class="badge">未进入</span>
+              </div>
+              <div class="form-grid compact">
                 <div>
                   <label for="room_id">房间 ID</label>
-                  <input id="room_id" placeholder="r_..." />
-                </div>
-                <div>
-                  <label for="room_endpoint">房间接口</label>
-                  <input id="room_endpoint" value="/api/v1/room/" />
+                  <input id="room_id" placeholder="匹配成功后自动填入" />
                 </div>
               </div>
               <div class="actions">
-                <button id="room_submit" type="button">查询房间</button>
+                <button id="use_current_room" class="ghost" type="button">使用当前房间</button>
+                <button id="room_submit" type="button">查看房间</button>
                 <button id="room_ready_submit" type="button">准备</button>
-                <button id="use_current_room" class="secondary" type="button">使用当前房间</button>
-                <span id="room_status" class="badge">未查询</span>
               </div>
-              <div id="room_players" class="players"></div>
-            </div>
-          </section>
+              <div id="room_players" class="team-board"></div>
+            </section>
 
-          <section class="card">
-            <div class="card-head">
-              <h2>房间 WebSocket</h2>
-              <p>连接房间 WebSocket，查看服务端推送和消息收发。</p>
-            </div>
-            <div class="card-body">
-              <div class="row">
+            <section class="panel">
+              <div class="panel-head">
                 <div>
-                  <label for="ws_url">WebSocket 地址</label>
-                  <input id="ws_url" value="/api/v1/ws/room/" />
-                </div>
-                <div>
-                  <label for="ws_message">发送消息</label>
-                  <input id="ws_message" value='{"type":"ping"}' />
+                  <h2>房间连接</h2>
+                  <p>连接后可以接收房间内准备状态等实时消息。</p>
                 </div>
               </div>
-              <label class="check-row">
-                <input id="ws_append_token" type="checkbox" checked />
-                <span>把 token 追加到查询参数</span>
-              </label>
+              <div class="socket-card">
+                <span>WebSocket</span>
+                <strong id="socket_hint">未连接房间</strong>
+              </div>
               <div class="actions">
-                <button id="ws_connect_submit" type="button">连接 WS</button>
-                <button id="ws_send_submit" class="secondary" type="button">发送</button>
-                <button id="ws_disconnect_submit" class="danger" type="button">断开</button>
-                <button id="ws_use_current_room" class="secondary" type="button">使用当前房间</button>
-                <span id="ws_status" class="badge">未连接</span>
+                <button id="ws_use_current_room" class="ghost" type="button">同步房间 ID</button>
+                <button id="ws_connect_submit" type="button">连接房间</button>
+                <button id="ws_disconnect_submit" class="danger ghost" type="button">断开</button>
               </div>
-              <div id="ws_log" class="log ws-log"></div>
-            </div>
-          </section>
+              <details class="debug-details">
+                <summary>高级消息发送</summary>
+                <div class="form-grid compact">
+                  <div>
+                    <label for="ws_message">消息内容</label>
+                    <input id="ws_message" value='{"type":"ping"}' />
+                  </div>
+                </div>
+                <button id="ws_send_submit" class="ghost small" type="button">发送消息</button>
+              </details>
+              <div id="ws_log" class="event-list ws-log"></div>
+            </section>
+          </div>
+        </section>
 
-          <section class="card">
-            <div class="card-head">
-              <h2>对局结果</h2>
-              <p>查询对局详情，或提交胜方队伍。</p>
-            </div>
-            <div class="card-body">
-              <div class="row">
+        <section id="view_settlement" class="view">
+          <div class="page-grid">
+            <section class="panel">
+              <div class="panel-head">
+                <div>
+                  <h2>战绩结算</h2>
+                  <p>选择胜方队伍并提交结果，提交后可以刷新排行榜查看积分变化。</p>
+                </div>
+                <span id="match_status" class="badge">未查询</span>
+              </div>
+              <div class="form-grid">
                 <div>
                   <label for="match_id">对局 ID</label>
-                  <input id="match_id" placeholder="1001" />
+                  <input id="match_id" placeholder="匹配成功后自动填入" />
                 </div>
                 <div>
                   <label for="winner_team_no">胜方队伍</label>
@@ -180,63 +299,94 @@
                 </div>
               </div>
               <div class="actions">
-                <button id="match_submit" type="button">查询对局</button>
+                <button id="use_current_match" class="ghost" type="button">使用当前对局</button>
+                <button id="match_submit" class="ghost" type="button">查询对局</button>
                 <button id="match_result_submit" type="button">提交结果</button>
-                <button id="use_current_match" class="secondary" type="button">使用当前对局</button>
-                <span id="match_status" class="badge">未查询</span>
               </div>
-            </div>
-          </section>
-          <section class="card">
-            <div class="card-head">
-              <h2>排行榜</h2>
-              <p>查询 Redis 排行榜 TopN，展示当前模式下的玩家积分。</p>
-            </div>
-            <div class="card-body">
-              <div class="row">
-                <div>
-                  <label for="leaderboard_mode">排行榜模式</label>
-                  <select id="leaderboard_mode">
-                    <option value="1v1">1v1</option>
-                    <option value="2v2">2v2</option>
-                  </select>
-                </div>
-                <div>
-                  <label for="leaderboard_limit">显示数量</label>
-                  <input id="leaderboard_limit" type="number" min="1" max="100" value="20" />
-                </div>
-              </div>
-              <div class="actions">
-                <button id="leaderboard_submit" type="button">查询排行榜</button>
-                <span id="leaderboard_status" class="badge">未查询</span>
-              </div>
-              <div id="leaderboard_items" class="leaderboard-list"></div>
-            </div>
-          </section>
-        </main>
+            </section>
 
-        <aside class="stack">
-          <section class="card">
-            <div class="card-head">
-              <h2>响应数据</h2>
-              <p>展示最近一次 HTTP 请求和响应。</p>
+            <section class="panel">
+              <div class="panel-head">
+                <h2>结算信息</h2>
+                <span class="badge">Match</span>
+              </div>
+              <div id="match_snapshot" class="match-card">暂无对局数据</div>
+            </section>
+          </div>
+        </section>
+
+        <section id="view_leaderboard" class="view">
+          <section class="panel">
+            <div class="panel-head">
+              <div>
+                <h2>排行榜</h2>
+                <p>按模式查看玩家积分排行。</p>
+              </div>
+              <span id="leaderboard_status" class="badge">未查询</span>
             </div>
-            <div class="card-body">
+            <div class="toolbar">
+              <div class="segmented" role="group" aria-label="排行榜模式">
+                <button class="segment active" type="button" data-board-mode="1v1">1v1</button>
+                <button class="segment" type="button" data-board-mode="2v2">2v2</button>
+              </div>
+              <div class="limit-field">
+                <label for="leaderboard_limit">显示数量</label>
+                <input id="leaderboard_limit" type="number" min="1" max="100" value="20" />
+              </div>
+              <button id="leaderboard_submit" type="button">刷新榜单</button>
+            </div>
+            <input id="leaderboard_mode" type="hidden" value="1v1" />
+            <div id="leaderboard_items" class="leaderboard-list"></div>
+          </section>
+        </section>
+
+        <section id="view_debug" class="view">
+          <div class="page-grid">
+            <section class="panel">
+              <div class="panel-head">
+                <div>
+                  <h2>开发调试</h2>
+                  <p>这里保留原始 token、接口地址和响应数据，主流程页面不会直接展示这些信息。</p>
+                </div>
+                <span class="badge">Debug</span>
+              </div>
+              <div class="form-grid compact">
+                <div>
+                  <label for="status_endpoint">匹配状态接口</label>
+                  <input id="status_endpoint" value="/api/v1/match/queue/status" />
+                </div>
+                <div>
+                  <label for="room_endpoint">房间接口前缀</label>
+                  <input id="room_endpoint" value="/api/v1/room/" />
+                </div>
+                <div>
+                  <label for="ws_url">WebSocket 地址前缀</label>
+                  <input id="ws_url" value="/api/v1/ws/room/" />
+                </div>
+              </div>
+              <label class="check-row">
+                <input id="ws_append_token" type="checkbox" checked />
+                <span>WebSocket 连接时把 token 追加到查询参数</span>
+              </label>
+              <label for="token">JWT Token</label>
+              <textarea id="token" placeholder="登录后自动写入"></textarea>
+            </section>
+
+            <section class="panel">
+              <div class="panel-head">
+                <h2>最近响应</h2>
+                <span class="badge">HTTP / WS</span>
+              </div>
               <pre><code id="output">{}</code></pre>
-            </div>
-          </section>
-
-          <section class="card">
-            <div class="card-head">
-              <h2>操作日志</h2>
-              <p>记录最近的测试动作。</p>
-            </div>
-            <div class="card-body">
-              <div id="log" class="log"></div>
-            </div>
-          </section>
-        </aside>
-      </div>
+              <div class="panel-head log-head">
+                <h2>操作日志</h2>
+                <span class="badge">Events</span>
+              </div>
+              <div id="log" class="event-list"></div>
+            </section>
+          </div>
+        </section>
+      </main>
     </div>
 
     <script src="/static/app.js"></script>
