@@ -73,6 +73,54 @@ const chunkDemo = {
   mapWSReconnectTimer: null,
   mapWSSubscribed: new Set(),
   mapWSManualClose: false,
+  mapGeoJSON: null,
+  mapBounds: null,
+  mapLoadPromise: null,
+  mapReady: false,
+  mapError: null,
+  provinceGeoJSON: null,
+  provinceInternalSegments: [],
+  provinceLabels: [],
+  provinceLoadPromise: null,
+  provinceReady: false,
+  provinceError: null,
+};
+
+const provinceNameMap = {
+  "Anhui Province": "安徽",
+  "Beijing Municipality": "北京",
+  "Chongqing Municipality": "重庆",
+  "Fujian Province": "福建",
+  "Gansu Province": "甘肃",
+  "Guangxi Zhuang Autonomous Region": "广西",
+  "Guangzhou Province": "广东",
+  "Guizhou Province": "贵州",
+  "Hainan Province": "海南",
+  "Hebei Province": "河北",
+  "Heilongjiang Province": "黑龙江",
+  "Henan Province": "河南",
+  "Hong Kong Special Administrative Region": "香港",
+  "Hubei Province": "湖北",
+  "Hunan Province": "湖南",
+  "Inner Mongolia Autonomous Region": "内蒙古",
+  "Jiangsu Province": "江苏",
+  "Jiangxi Province": "江西",
+  "Jilin Province": "吉林",
+  "Liaoning Province": "辽宁",
+  "Macau Special Administrative Region": "澳门",
+  "Ningxia Ningxia Hui Autonomous Region": "宁夏",
+  "Qinghai Province": "青海",
+  "Shaanxi Province": "陕西",
+  "Shandong Province": "山东",
+  "Shanghai Municipality": "上海",
+  "Shanxi Province": "山西",
+  "Sichuan Province": "四川",
+  "Taiwan Province": "台湾",
+  "Tianjin Municipality": "天津",
+  "Tibet Autonomous Region": "西藏",
+  "Xinjiang Uyghur Autonomous Region": "新疆",
+  "Yunnan Province": "云南",
+  "Zhejiang Province": "浙江",
 };
 
 const appState = {
@@ -722,7 +770,215 @@ function setCellFlag(chunkID, index, flagged) {
   if (flags.size === 0) chunkDemo.flags.delete(chunkID);
 }
 
-function drawChinaShape(ctx, canvas) {
+function collectGeoJSONPolygons(input, polygons = []) {
+  if (!input) return polygons;
+  if (input.type === "FeatureCollection") {
+    (input.features || []).forEach((feature) => collectGeoJSONPolygons(feature, polygons));
+  } else if (input.type === "Feature") {
+    collectGeoJSONPolygons(input.geometry, polygons);
+  } else if (input.type === "GeometryCollection") {
+    (input.geometries || []).forEach((geometry) => collectGeoJSONPolygons(geometry, polygons));
+  } else if (input.type === "Polygon") {
+    polygons.push(input.coordinates || []);
+  } else if (input.type === "MultiPolygon") {
+    (input.coordinates || []).forEach((polygon) => polygons.push(polygon || []));
+  }
+  return polygons;
+}
+
+function computeGeoJSONBounds(polygons) {
+  const bounds = {
+    minLon: Infinity,
+    minLat: Infinity,
+    maxLon: -Infinity,
+    maxLat: -Infinity,
+  };
+  polygons.forEach((polygon) => {
+    polygon.forEach((ring) => {
+      ring.forEach(([lon, lat]) => {
+        if (!Number.isFinite(lon) || !Number.isFinite(lat)) return;
+        bounds.minLon = Math.min(bounds.minLon, lon);
+        bounds.minLat = Math.min(bounds.minLat, lat);
+        bounds.maxLon = Math.max(bounds.maxLon, lon);
+        bounds.maxLat = Math.max(bounds.maxLat, lat);
+      });
+    });
+  });
+  if (!Number.isFinite(bounds.minLon) || bounds.minLon >= bounds.maxLon || bounds.minLat >= bounds.maxLat) {
+    return null;
+  }
+  return bounds;
+}
+
+function pointKey(point) {
+  return point.map((value) => Number(value).toFixed(6)).join(",");
+}
+
+function segmentKey(from, to) {
+  const fromKey = pointKey(from);
+  const toKey = pointKey(to);
+  return fromKey < toKey ? `${fromKey}|${toKey}` : `${toKey}|${fromKey}`;
+}
+
+function buildSharedBoundarySegments(polygons) {
+  const segments = new Map();
+  polygons.forEach((polygon) => {
+    polygon.forEach((ring) => {
+      for (let index = 1; index < ring.length; index += 1) {
+        const from = ring[index - 1];
+        const to = ring[index];
+        const key = segmentKey(from, to);
+        const existing = segments.get(key);
+        if (existing) existing.count += 1;
+        else segments.set(key, { from, to, count: 1 });
+      }
+    });
+  });
+  return [...segments.values()].filter((segment) => segment.count > 1);
+}
+
+function ringAreaAndCentroid(ring) {
+  let twiceArea = 0;
+  let cx = 0;
+  let cy = 0;
+  for (let index = 0; index < ring.length - 1; index += 1) {
+    const [x1, y1] = ring[index];
+    const [x2, y2] = ring[index + 1];
+    const cross = x1 * y2 - x2 * y1;
+    twiceArea += cross;
+    cx += (x1 + x2) * cross;
+    cy += (y1 + y2) * cross;
+  }
+  if (Math.abs(twiceArea) < 0.0000001) {
+    const sums = ring.reduce((acc, [lon, lat]) => {
+      acc.lon += lon;
+      acc.lat += lat;
+      return acc;
+    }, { lon: 0, lat: 0 });
+    return {
+      area: 0,
+      lon: sums.lon / Math.max(1, ring.length),
+      lat: sums.lat / Math.max(1, ring.length),
+    };
+  }
+  const area = twiceArea / 2;
+  return {
+    area: Math.abs(area),
+    lon: cx / (6 * area),
+    lat: cy / (6 * area),
+  };
+}
+
+function polygonsForGeometry(geometry) {
+  if (!geometry) return [];
+  if (geometry.type === "Polygon") return [geometry.coordinates || []];
+  if (geometry.type === "MultiPolygon") return geometry.coordinates || [];
+  return [];
+}
+
+function buildProvinceLabels(geojson) {
+  return (geojson.features || []).map((feature) => {
+    const polygons = polygonsForGeometry(feature.geometry);
+    let best = null;
+    polygons.forEach((polygon) => {
+      const outerRing = polygon[0] || [];
+      if (outerRing.length < 3) return;
+      const candidate = ringAreaAndCentroid(outerRing);
+      if (!best || candidate.area > best.area) best = candidate;
+    });
+    const rawName = feature.properties?.shapeName || "";
+    return best ? {
+      name: provinceNameMap[rawName] || rawName,
+      rawName,
+      lon: best.lon,
+      lat: best.lat,
+      area: best.area,
+    } : null;
+  }).filter(Boolean);
+}
+
+async function ensureChinaMapLoaded() {
+  if (chunkDemo.mapReady || chunkDemo.mapError) return;
+  if (!chunkDemo.mapLoadPromise) {
+    chunkDemo.mapLoadPromise = fetch("/static/china-provinces.geojson")
+      .then((resp) => {
+        if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+        return resp.json();
+      })
+      .then((geojson) => {
+        const polygons = collectGeoJSONPolygons(geojson);
+        const bounds = computeGeoJSONBounds(polygons);
+        if (!polygons.length || !bounds) throw new Error("invalid province geojson");
+        chunkDemo.mapGeoJSON = { polygons };
+        chunkDemo.provinceGeoJSON = { polygons };
+        chunkDemo.provinceInternalSegments = buildSharedBoundarySegments(polygons);
+        chunkDemo.provinceLabels = buildProvinceLabels(geojson);
+        chunkDemo.mapBounds = bounds;
+        chunkDemo.mapReady = true;
+        chunkDemo.provinceReady = true;
+      })
+      .catch((error) => {
+        chunkDemo.mapGeoJSON = null;
+        chunkDemo.provinceGeoJSON = null;
+        chunkDemo.provinceInternalSegments = [];
+        chunkDemo.provinceLabels = [];
+        chunkDemo.mapBounds = null;
+        chunkDemo.mapReady = false;
+        chunkDemo.provinceReady = false;
+        chunkDemo.mapError = error;
+        addLog("省级地图 GeoJSON 加载失败", String(error.message || error));
+      });
+  }
+  await chunkDemo.mapLoadPromise;
+}
+
+async function ensureProvinceMapLoaded() {
+  await ensureChinaMapLoaded();
+}
+
+function geoPointToWorld(lon, lat) {
+  const bounds = chunkDemo.mapBounds;
+  if (!bounds) return null;
+  return {
+    x: (lon - bounds.minLon) / (bounds.maxLon - bounds.minLon),
+    y: 1 - (lat - bounds.minLat) / (bounds.maxLat - bounds.minLat),
+  };
+}
+
+function traceChinaGeoJSONPath(ctx, canvas) {
+  if (!chunkDemo.mapGeoJSON || !chunkDemo.mapBounds) return false;
+  ctx.beginPath();
+  chunkDemo.mapGeoJSON.polygons.forEach((polygon) => {
+    polygon.forEach((ring) => {
+      ring.forEach(([lon, lat], index) => {
+        const world = geoPointToWorld(lon, lat);
+        if (!world) return;
+        const p = worldToScreen(world.x, world.y, canvas);
+        if (index === 0) ctx.moveTo(p.x, p.y);
+        else ctx.lineTo(p.x, p.y);
+      });
+      ctx.closePath();
+    });
+  });
+  return true;
+}
+
+function traceProvincePath(ctx, canvas) {
+  if (!chunkDemo.provinceInternalSegments.length || !chunkDemo.mapBounds) return false;
+  ctx.beginPath();
+  chunkDemo.provinceInternalSegments.forEach((segment) => {
+    const fromWorld = geoPointToWorld(segment.from[0], segment.from[1]);
+    const toWorld = geoPointToWorld(segment.to[0], segment.to[1]);
+    if (!fromWorld || !toWorld) return;
+    const from = worldToScreen(fromWorld.x, fromWorld.y, canvas);
+    const to = worldToScreen(toWorld.x, toWorld.y, canvas);
+    ctx.moveTo(from.x, from.y);
+    ctx.lineTo(to.x, to.y);
+  });
+  return true;
+}
+
+function traceFallbackChinaPath(ctx, canvas) {
   const points = [
     [0.20, 0.20], [0.33, 0.13], [0.52, 0.16], [0.66, 0.23], [0.76, 0.35],
     [0.84, 0.49], [0.75, 0.62], [0.66, 0.76], [0.50, 0.84], [0.35, 0.78],
@@ -735,8 +991,54 @@ function drawChinaShape(ctx, canvas) {
     else ctx.lineTo(p.x, p.y);
   });
   ctx.closePath();
+}
+
+function traceChinaPath(ctx, canvas) {
+  if (traceChinaGeoJSONPath(ctx, canvas)) return true;
+  traceFallbackChinaPath(ctx, canvas);
+  return false;
+}
+
+function drawChinaShape(ctx, canvas) {
+  const usingGeoJSON = traceChinaPath(ctx, canvas);
   ctx.fillStyle = "rgba(26, 55, 46, 0.54)";
-  ctx.fill();
+  ctx.fill(usingGeoJSON ? "evenodd" : "nonzero");
+}
+
+function drawProvinceBoundaries(ctx, canvas) {
+  if (!traceProvincePath(ctx, canvas)) return;
+  ctx.save();
+  ctx.strokeStyle = "rgba(236, 244, 239, 0.34)";
+  ctx.lineWidth = Math.max(1.1, Math.min(2.4, canvas.width / 980));
+  ctx.stroke();
+  ctx.restore();
+}
+
+function drawProvinceLabels(ctx, canvas) {
+  if (chunkDemo.zoom < 2 || !chunkDemo.provinceLabels.length || !chunkDemo.mapBounds) return;
+  ctx.save();
+  const baseSize = Math.max(11, Math.min(18, canvas.width / 82));
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  ctx.lineJoin = "round";
+  chunkDemo.provinceLabels.forEach((label) => {
+    const world = geoPointToWorld(label.lon, label.lat);
+    if (!world) return;
+    const point = worldToScreen(world.x, world.y, canvas);
+    const smallRegion = label.area < 1.2;
+    const fontSize = smallRegion ? Math.max(9, baseSize * 0.78) : baseSize;
+    ctx.font = `600 ${fontSize}px "Microsoft YaHei", "PingFang SC", sans-serif`;
+    ctx.strokeStyle = "rgba(3, 13, 11, 0.82)";
+    ctx.lineWidth = Math.max(3, fontSize * 0.28);
+    ctx.fillStyle = "rgba(236, 244, 239, 0.92)";
+    ctx.strokeText(label.name, point.x, point.y);
+    ctx.fillText(label.name, point.x, point.y);
+  });
+  ctx.restore();
+}
+
+function drawChinaOutline(ctx, canvas) {
+  traceChinaPath(ctx, canvas);
   ctx.strokeStyle = "rgba(167, 199, 185, 0.56)";
   ctx.lineWidth = 2;
   ctx.stroke();
@@ -877,10 +1179,17 @@ function drawChunkCanvas() {
   ctx.fillRect(0, 0, canvas.width, canvas.height);
   drawChinaShape(ctx, canvas);
 
+  ctx.save();
+  const usingGeoJSONClip = traceChinaPath(ctx, canvas);
+  ctx.clip(usingGeoJSONClip ? "evenodd" : "nonzero");
   chunkDemo.chunks.forEach((chunk) => {
     if (chunkDemo.level === chunkDemo.maxLevel) drawSnapshotCells(ctx, canvas, chunk);
     else drawChunkRect(ctx, canvas, chunk);
   });
+  ctx.restore();
+  drawProvinceBoundaries(ctx, canvas);
+  drawProvinceLabels(ctx, canvas);
+  drawChinaOutline(ctx, canvas);
 
   updateMapHUD();
 }
@@ -1246,6 +1555,8 @@ function scheduleMapLoad() {
 
 async function startMapView() {
   resizeMapCanvas();
+  await ensureChinaMapLoaded();
+  await ensureProvinceMapLoaded();
   await loadVisibleChunks();
 }
 

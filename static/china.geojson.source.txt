@@ -1,0 +1,6 @@
+Source: geoBoundaries Global Database, gbOpen CHN simplified GeoJSON
+Downloaded from: https://github.com/wmgeolab/geoBoundaries
+License note from geoBoundaries metadata: Public Domain
+
+Files:
+- static/china-provinces.geojson: CHN ADM1 boundaries, used for the map outline, chunk clipping, and province boundary lines.
