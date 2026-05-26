@@ -2,6 +2,9 @@ package main
 
 import (
 	"context"
+	"log"
+	"time"
+
 	"go-lobby/config"
 	"go-lobby/internal/auth"
 	"go-lobby/internal/cache"
@@ -11,8 +14,6 @@ import (
 	"go-lobby/internal/repository"
 	"go-lobby/internal/service"
 	"go-lobby/internal/ws"
-	"log"
-	"time"
 
 	"github.com/gin-gonic/gin"
 	_ "github.com/go-sql-driver/mysql"
@@ -53,6 +54,7 @@ func main() {
 	userService := service.NewUserService(userRepo, jwtManager)
 	userHandler := handler.NewUserHandler(userService)
 	roomHub := ws.NewRoomHub()
+	mapHub := ws.NewMapHub()
 	roomService := service.NewRoomService()
 	roomHandler := handler.NewRoomHandler(roomService, roomHub)
 	matchRepo := repository.NewMatchRepository(db)
@@ -70,7 +72,7 @@ func main() {
 	mineSeasonRepo := repository.NewMineSeasonRepository(db)
 	mineChunkStateRepo := repository.NewMineChunkStateRepository(redisClient)
 	chunkService := service.NewChunkServiceWithDeps(mineSeasonRepo, mineChunkStateRepo)
-	chunkHandler := handler.NewChunkHandler(chunkService)
+	chunkHandler := handler.NewChunkHandler(chunkService, mapHub)
 
 	r := gin.Default()
 
@@ -93,7 +95,9 @@ func main() {
 			wsGroup := authGroup.Group("/ws")
 			{
 				wsHandler := handler.NewWSHandler(roomService, roomHub)
+				mapWSHandler := handler.NewMapWSHandler(mapHub)
 				wsGroup.GET("/room/:id", wsHandler.JoinRoom)
+				wsGroup.GET("/map", mapWSHandler.JoinMap)
 			}
 
 			authGroup.GET("/me", userHandler.Me)

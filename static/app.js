@@ -69,6 +69,10 @@ const chunkDemo = {
   loadTimer: null,
   lastBBox: null,
   fallback: false,
+  mapWS: null,
+  mapWSReconnectTimer: null,
+  mapWSSubscribed: new Set(),
+  mapWSManualClose: false,
 };
 
 const appState = {
@@ -237,6 +241,8 @@ function setRoute(hash) {
     startMapView().catch((error) => {
       addLog("Chunk 渲染失败", String(error.message || error));
     });
+  } else {
+    disconnectMapWS();
   }
 }
 
@@ -659,6 +665,9 @@ async function loadVisibleChunks() {
 
   if (chunkDemo.level === chunkDemo.maxLevel) {
     await loadVisibleSnapshots();
+    syncMapWSSubscriptions();
+  } else {
+    disconnectMapWS();
   }
   drawChunkCanvas();
 }
@@ -939,7 +948,7 @@ function upsertOpenedCell(chunkID, result) {
     y,
     index,
     adjacent_mines: Number(result.adjacent_mines || 0),
-    opened_by: appState.user ? { user_id: appState.user.user_id || appState.user.id || 0, nickname: appState.user.nickname || "" } : { user_id: 0, nickname: "" },
+    opened_by: result.opened_by || (appState.user ? { user_id: appState.user.user_id || appState.user.id || 0, nickname: appState.user.nickname || "" } : { user_id: 0, nickname: "" }),
     opened_at: result.opened_at || new Date().toISOString(),
   };
   const existingIndex = snapshot.opened_cells.findIndex((cell) => Number(cell.index) === index);
@@ -958,6 +967,9 @@ function upsertOpenedCells(chunkID, result) {
 
 function updateChunkAfterAction(chunkID, result) {
   const chunk = chunkDemo.chunks.find((item) => item.chunk_id === chunkID);
+  const snapshot = chunkDemo.snapshots.get(chunkID);
+  if (snapshot && result.version) snapshot.version = result.version;
+  if (snapshot && result.closed) snapshot.closed = true;
   if (!chunk) return;
   if (result.closed) {
     chunk.closed = true;
@@ -969,6 +981,150 @@ function updateChunkAfterAction(chunkID, result) {
   if (!result.mine && result.index !== undefined) {
     chunk.opened_count = Math.max(Number(chunk.opened_count || 0), (chunkDemo.snapshots.get(chunkID)?.opened_cells || []).length);
   }
+}
+
+function mapWSURL() {
+  const url = new URL("/api/v1/ws/map", window.location.href);
+  url.protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
+  const token = rawToken();
+  if (token) url.searchParams.set("token", token);
+  return url.toString();
+}
+
+function visibleLeafChunkIDs() {
+  if (chunkDemo.level !== chunkDemo.maxLevel || chunkDemo.fallback) return [];
+  return chunkDemo.chunks.map((chunk) => chunk.chunk_id).filter(Boolean);
+}
+
+function ensureMapWS() {
+  if (!appState.token || chunkDemo.level !== chunkDemo.maxLevel || chunkDemo.fallback) return null;
+  if (chunkDemo.mapWS && [WebSocket.OPEN, WebSocket.CONNECTING].includes(chunkDemo.mapWS.readyState)) {
+    return chunkDemo.mapWS;
+  }
+  chunkDemo.mapWSManualClose = false;
+  const ws = new WebSocket(mapWSURL());
+  chunkDemo.mapWS = ws;
+  setBadge("chunk_status", "实时连接中", "warn");
+
+  ws.onopen = () => {
+    addLog("地图实时连接", "已连接");
+    sendMapWSSubscriptions();
+  };
+
+  ws.onmessage = (event) => {
+    handleMapWSEvent(event.data);
+  };
+
+  ws.onerror = () => {
+    addLog("地图实时连接错误", "WebSocket error");
+  };
+
+  ws.onclose = (event) => {
+    if (chunkDemo.mapWS === ws) chunkDemo.mapWS = null;
+    chunkDemo.mapWSSubscribed = new Set();
+    addLog("地图实时连接关闭", `code=${event.code}`);
+    if (!chunkDemo.mapWSManualClose && appState.token && chunkDemo.level === chunkDemo.maxLevel && !chunkDemo.fallback) {
+      window.clearTimeout(chunkDemo.mapWSReconnectTimer);
+      chunkDemo.mapWSReconnectTimer = window.setTimeout(syncMapWSSubscriptions, 1200);
+    }
+  };
+
+  return ws;
+}
+
+function sendMapWSSubscriptions() {
+  const ws = chunkDemo.mapWS;
+  if (!ws || ws.readyState !== WebSocket.OPEN) return;
+  const chunkIDs = visibleLeafChunkIDs();
+  const next = new Set(chunkIDs);
+  const unchanged =
+    next.size === chunkDemo.mapWSSubscribed.size &&
+    chunkIDs.every((chunkID) => chunkDemo.mapWSSubscribed.has(chunkID));
+  if (unchanged) return;
+  ws.send(JSON.stringify({
+    type: "subscribe_chunks",
+    data: { chunk_ids: chunkIDs },
+  }));
+  chunkDemo.mapWSSubscribed = next;
+  addLog("地图实时订阅", `${chunkIDs.length} 个可视 Chunk`);
+}
+
+function syncMapWSSubscriptions() {
+  if (!appState.token || chunkDemo.level !== chunkDemo.maxLevel || chunkDemo.fallback) {
+    disconnectMapWS();
+    return;
+  }
+  const ws = ensureMapWS();
+  if (ws && ws.readyState === WebSocket.OPEN) {
+    sendMapWSSubscriptions();
+  }
+}
+
+function disconnectMapWS() {
+  window.clearTimeout(chunkDemo.mapWSReconnectTimer);
+  chunkDemo.mapWSManualClose = true;
+  chunkDemo.mapWSSubscribed = new Set();
+  if (!chunkDemo.mapWS) return;
+  chunkDemo.mapWS.close(1000, "leave max level");
+  chunkDemo.mapWS = null;
+}
+
+function handleMapWSEvent(raw) {
+  let event;
+  try {
+    event = JSON.parse(raw);
+  } catch (error) {
+    addLog("地图实时消息错误", "JSON 解析失败");
+    return;
+  }
+  if (event.type === "subscribed_chunks" || event.type === "pong") return;
+  if (event.type === "error") {
+    addLog("地图实时错误", event.error || "unknown");
+    return;
+  }
+  const chunkID = event.chunk_id || event.data?.chunk_id;
+  if (!chunkID) return;
+  const version = Number(event.version || event.data?.version || 0);
+  if (version && shouldReloadSnapshot(chunkID, version)) {
+    reloadChunkSnapshot(chunkID).catch((error) => addLog("地图快照重载失败", String(error.message || error)));
+    return;
+  }
+  if (event.type === "mine.cell_opened") {
+    upsertOpenedCells(chunkID, event.data || {});
+    updateChunkAfterAction(chunkID, event.data || {});
+  } else if (event.type === "mine.cell_flagged") {
+    const data = event.data || {};
+    setCellFlag(chunkID, Number(data.index), Boolean(data.flagged));
+    updateChunkAfterAction(chunkID, data);
+  } else if (event.type === "mine.chunk_closed") {
+    const data = event.data || {};
+    updateChunkAfterAction(chunkID, { ...data, closed: true });
+  } else if (event.type === "mine.chunk_snapshot_required") {
+    reloadChunkSnapshot(chunkID).catch((error) => addLog("地图快照重载失败", String(error.message || error)));
+    return;
+  }
+  chunkDemo.lastAction = `实时更新：${chunkID}`;
+  text("chunk_last_action", chunkDemo.lastAction);
+  drawChunkCanvas();
+}
+
+function shouldReloadSnapshot(chunkID, nextVersion) {
+  const snapshot = chunkDemo.snapshots.get(chunkID);
+  if (!snapshot?.version) return false;
+  return nextVersion > Number(snapshot.version) + 1;
+}
+
+async function reloadChunkSnapshot(chunkID) {
+  const snapshot = await mapFetchJSON(`/api/v1/map/chunks/${encodeURIComponent(chunkID)}/snapshot`);
+  chunkDemo.snapshots.set(chunkID, snapshot);
+  const chunk = chunkDemo.chunks.find((item) => item.chunk_id === chunkID);
+  if (chunk) {
+    chunk.closed = Boolean(snapshot.closed);
+    chunk.version = snapshot.version || chunk.version;
+    chunk.opened_count = Array.isArray(snapshot.opened_cells) ? snapshot.opened_cells.length : chunk.opened_count;
+    chunk.state = chunk.closed ? "closed" : chunk.opened_count > 0 ? "opening" : "normal";
+  }
+  drawChunkCanvas();
 }
 
 async function openMapCell(hit) {
@@ -1426,6 +1582,7 @@ function logout() {
   appState.room = null;
   appState.match = null;
   if (appState.ws) disconnectWS();
+  disconnectMapWS();
   text("metric_status", "未入队");
   text("metric_room_status", "未进入");
   text("metric_match", "-");

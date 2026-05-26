@@ -70,6 +70,33 @@ func TestChunkServiceOpenCellIsIdempotent(t *testing.T) {
 	}
 }
 
+func TestChunkServiceOpenCellVersionIncrements(t *testing.T) {
+	season := testServiceMineSeason()
+	store := newMemoryMineChunkStateStore()
+	svc := NewChunkServiceWithDeps(staticMineSeasonReader{season: season}, store)
+	chunkID := model.ChunkID{Region: "cn", Z: model.ChunkMaxLevel, X: 10, Y: 20}
+	firstX, firstY := findNumberCell(t, season, chunkID, nil)
+	opened := map[int]bool{}
+	firstIndex, err := model.ChunkCellIndex(firstX, firstY)
+	if err != nil {
+		t.Fatalf("ChunkCellIndex returned error: %v", err)
+	}
+	opened[firstIndex] = true
+	secondX, secondY := findNumberCell(t, season, chunkID, opened)
+
+	first, err := svc.OpenCell(context.Background(), 1001, chunkID.String(), &req.OpenMineCellRequest{X: firstX, Y: firstY})
+	if err != nil {
+		t.Fatalf("OpenCell first returned error: %v", err)
+	}
+	second, err := svc.OpenCell(context.Background(), 1002, chunkID.String(), &req.OpenMineCellRequest{X: secondX, Y: secondY})
+	if err != nil {
+		t.Fatalf("OpenCell second returned error: %v", err)
+	}
+	if second.Version != first.Version+1 {
+		t.Fatalf("version should increment by one: first=%d second=%d", first.Version, second.Version)
+	}
+}
+
 func TestChunkServiceOpenZeroCellCascades(t *testing.T) {
 	season := testServiceMineSeason()
 	store := newMemoryMineChunkStateStore()
@@ -239,6 +266,38 @@ func findMineCell(t *testing.T, season *model.MineSeason, chunkID model.ChunkID,
 		}
 	}
 	t.Fatalf("could not find cell with mine=%v", wantMine)
+	return 0, 0
+}
+
+func findNumberCell(t *testing.T, season *model.MineSeason, chunkID model.ChunkID, excluded map[int]bool) (int, int) {
+	t.Helper()
+	gen := model.NewMineGenerator()
+	for y := 0; y < model.ChunkSize; y++ {
+		for x := 0; x < model.ChunkSize; x++ {
+			index, err := model.ChunkCellIndex(x, y)
+			if err != nil {
+				t.Fatalf("ChunkCellIndex returned error: %v", err)
+			}
+			if excluded[index] {
+				continue
+			}
+			isMine, err := gen.IsMine(season, chunkID, x, y)
+			if err != nil {
+				t.Fatalf("IsMine returned error: %v", err)
+			}
+			if isMine {
+				continue
+			}
+			adjacentMines, err := gen.AdjacentMineCount(season, chunkID, x, y)
+			if err != nil {
+				t.Fatalf("AdjacentMineCount returned error: %v", err)
+			}
+			if adjacentMines > 0 {
+				return x, y
+			}
+		}
+	}
+	t.Fatal("could not find safe number cell")
 	return 0, 0
 }
 

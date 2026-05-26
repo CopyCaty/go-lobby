@@ -14,6 +14,17 @@ type ServerMessage struct {
 	Error  string      `json:"error,omitempty"`
 }
 
+type ChunkEvent struct {
+	Type    string      `json:"type"`
+	ChunkID string      `json:"chunk_id"`
+	Version int64       `json:"version,omitempty"`
+	Data    interface{} `json:"data,omitempty"`
+}
+
 func EncodeServerMessage(msg ServerMessage) ([]byte, error) {
 	return json.Marshal(msg)
+}
+
+func EncodeChunkEvent(event ChunkEvent) ([]byte, error) {
+	return json.Marshal(event)
 }

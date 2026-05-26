@@ -3,10 +3,12 @@ package service
 import (
 	"context"
 	"errors"
+	"sync"
+	"time"
+
 	"go-lobby/internal/dto/req"
 	"go-lobby/internal/dto/res"
 	"go-lobby/internal/model"
-	"time"
 )
 
 var (
@@ -31,6 +33,7 @@ type ChunkService struct {
 	seasonReader MineSeasonReader
 	stateStore   MineChunkStateStore
 	mineGen      *model.MineGenerator
+	chunkLocks   sync.Map
 }
 
 func NewChunkService() *ChunkService {
@@ -188,6 +191,8 @@ func (s *ChunkService) OpenCell(ctx context.Context, userID int64, rawChunkID st
 	if err != nil {
 		return nil, err
 	}
+	unlock := s.lockChunk(chunkID.String())
+	defer unlock()
 	index, err := model.ChunkCellIndex(openReq.X, openReq.Y)
 	if err != nil {
 		return nil, ErrInvalidChunkID
@@ -340,6 +345,8 @@ func (s *ChunkService) FlagCell(ctx context.Context, userID int64, rawChunkID st
 	if err != nil {
 		return nil, err
 	}
+	unlock := s.lockChunk(chunkID.String())
+	defer unlock()
 	index, err := model.ChunkCellIndex(flagReq.X, flagReq.Y)
 	if err != nil {
 		return nil, ErrInvalidChunkID
@@ -379,6 +386,13 @@ func (s *ChunkService) FlagCell(ctx context.Context, userID int64, rawChunkID st
 
 func (s *ChunkService) hasMineDeps() bool {
 	return s.seasonReader != nil && s.stateStore != nil && s.mineGen != nil
+}
+
+func (s *ChunkService) lockChunk(chunkID string) func() {
+	lockValue, _ := s.chunkLocks.LoadOrStore(chunkID, &sync.Mutex{})
+	mu := lockValue.(*sync.Mutex)
+	mu.Lock()
+	return mu.Unlock
 }
 
 func (s *ChunkService) activeSeason(ctx context.Context) (*model.MineSeason, error) {

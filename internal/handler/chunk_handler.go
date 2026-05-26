@@ -2,23 +2,32 @@ package handler
 
 import (
 	"errors"
+	"net/http"
+	"strconv"
+
 	"go-lobby/internal/dto/req"
+	"go-lobby/internal/dto/res"
 	"go-lobby/internal/middleware"
 	"go-lobby/internal/model"
 	"go-lobby/internal/service"
-	"net/http"
-	"strconv"
+	"go-lobby/internal/ws"
 
 	"github.com/gin-gonic/gin"
 )
 
 type ChunkHandler struct {
 	chunkService *service.ChunkService
+	mapHub       *ws.MapHub
 }
 
-func NewChunkHandler(chunkService *service.ChunkService) *ChunkHandler {
+func NewChunkHandler(chunkService *service.ChunkService, mapHub ...*ws.MapHub) *ChunkHandler {
+	var hub *ws.MapHub
+	if len(mapHub) > 0 {
+		hub = mapHub[0]
+	}
 	return &ChunkHandler{
 		chunkService: chunkService,
+		mapHub:       hub,
 	}
 }
 
@@ -94,6 +103,7 @@ func (h *ChunkHandler) OpenCell(c *gin.Context) {
 		writeChunkError(c, err)
 		return
 	}
+	h.broadcastOpenCell(result)
 	c.JSON(http.StatusOK, gin.H{
 		"code":    0,
 		"message": "ok",
@@ -123,6 +133,7 @@ func (h *ChunkHandler) FlagCell(c *gin.Context) {
 		writeChunkError(c, err)
 		return
 	}
+	h.broadcastFlagCell(result)
 	c.JSON(http.StatusOK, gin.H{
 		"code":    0,
 		"message": "ok",
@@ -162,6 +173,34 @@ func currentUserID(c *gin.Context) (int64, bool) {
 	}
 	userID, ok := rawUserID.(int64)
 	return userID, ok
+}
+
+func (h *ChunkHandler) broadcastOpenCell(result *res.OpenMineCellResponse) {
+	if h.mapHub == nil || result == nil {
+		return
+	}
+	eventType := "mine.cell_opened"
+	if result.Closed {
+		eventType = "mine.chunk_closed"
+	}
+	h.mapHub.BroadcastChunkEvent(ws.ChunkEvent{
+		Type:    eventType,
+		ChunkID: result.ChunkID,
+		Version: result.Version,
+		Data:    result,
+	})
+}
+
+func (h *ChunkHandler) broadcastFlagCell(result *res.FlagMineCellResponse) {
+	if h.mapHub == nil || result == nil {
+		return
+	}
+	h.mapHub.BroadcastChunkEvent(ws.ChunkEvent{
+		Type:    "mine.cell_flagged",
+		ChunkID: result.ChunkID,
+		Version: result.Version,
+		Data:    result,
+	})
 }
 
 func writeChunkError(c *gin.Context, err error) {

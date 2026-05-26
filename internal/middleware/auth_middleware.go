@@ -1,9 +1,10 @@
 package middleware
 
 import (
-	"go-lobby/internal/auth"
 	"net/http"
 	"strings"
+
+	"go-lobby/internal/auth"
 
 	"github.com/gin-gonic/gin"
 )
@@ -46,6 +47,9 @@ func extractToken(c *gin.Context) string {
 	const prefix = "Bearer "
 	if strings.HasPrefix(authHeader, prefix) {
 		return strings.TrimSpace(strings.TrimPrefix(authHeader, prefix))
+	}
+	if token := strings.TrimSpace(c.Query("token")); token != "" {
+		return token
 	}
 	token, err := c.Cookie("access_token")
 	if err != nil {
