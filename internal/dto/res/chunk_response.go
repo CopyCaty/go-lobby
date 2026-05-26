@@ -6,19 +6,22 @@ import (
 )
 
 type ChunkSummaryResponse struct {
-	ChunkID     string            `json:"chunk_id"`
-	Region      string            `json:"region"`
-	Z           int               `json:"z"`
-	Level       int               `json:"level"`
-	X           int               `json:"x"`
-	Y           int               `json:"y"`
-	Bounds      model.ChunkBounds `json:"bounds"`
-	Width       int               `json:"width"`
-	Height      int               `json:"height"`
-	State       string            `json:"state"`
-	Closed      bool              `json:"closed"`
-	Version     int64             `json:"version"`
-	OpenedCount int               `json:"opened_count"`
+	ChunkID         string            `json:"chunk_id"`
+	Region          string            `json:"region"`
+	Z               int               `json:"z"`
+	Level           int               `json:"level"`
+	X               int               `json:"x"`
+	Y               int               `json:"y"`
+	Bounds          model.ChunkBounds `json:"bounds"`
+	Width           int               `json:"width"`
+	Height          int               `json:"height"`
+	State           string            `json:"state"`
+	Closed          bool              `json:"closed"`
+	Version         int64             `json:"version"`
+	OpenedCount     int               `json:"opened_count"`
+	ClosedLeafCount int               `json:"closed_leaf_count"`
+	TotalLeafCount  int               `json:"total_leaf_count"`
+	ClosedRatio     float64           `json:"closed_ratio"`
 }
 
 type ChunkListResponse struct {

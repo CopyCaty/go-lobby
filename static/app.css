@@ -786,6 +786,10 @@ button:disabled {
   background: #df7c3f;
 }
 
+.legend-closing {
+  background: linear-gradient(90deg, #2d5c4c, #d8b34b, #7f1d1d);
+}
+
 .legend-opened {
   background: #a7c7b9;
 }

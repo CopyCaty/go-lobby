@@ -115,6 +115,69 @@ func TestChunkServiceSnapshotDoesNotExposeMines(t *testing.T) {
 	}
 }
 
+func TestChunkServiceLeafClosedAggregate(t *testing.T) {
+	season := testServiceMineSeason()
+	store := newMemoryMineChunkStateStore()
+	chunkID := model.ChunkID{Region: "cn", Z: model.ChunkMaxLevel, X: 8, Y: 20}
+	store.items[chunkID.String()] = &model.MineChunkState{
+		SeasonID:    season.ID,
+		ChunkID:     chunkID.String(),
+		Closed:      true,
+		Version:     2,
+		OpenedCells: make(map[int]model.MineOpenedCellSnapshot),
+		FlaggedBy:   make(map[int]int64),
+	}
+	svc := NewChunkServiceWithDeps(staticMineSeasonReader{season: season}, store)
+
+	summary, err := svc.GetChunkSummary(context.Background(), chunkID.String())
+	if err != nil {
+		t.Fatalf("GetChunkSummary returned error: %v", err)
+	}
+	if !summary.Closed || summary.State != "closed" || summary.ClosedLeafCount != 1 || summary.TotalLeafCount != 1 || summary.ClosedRatio != 1 {
+		t.Fatalf("unexpected leaf aggregate: %+v", summary)
+	}
+}
+
+func TestChunkServiceParentClosedLeafAggregate(t *testing.T) {
+	season := testServiceMineSeason()
+	store := newMemoryMineChunkStateStore()
+	for _, rawChunkID := range []string{"cn:6:8:20", "cn:6:0:0"} {
+		store.items[rawChunkID] = &model.MineChunkState{
+			SeasonID:    season.ID,
+			ChunkID:     rawChunkID,
+			Closed:      true,
+			Version:     2,
+			OpenedCells: make(map[int]model.MineOpenedCellSnapshot),
+			FlaggedBy:   make(map[int]int64),
+		}
+	}
+	svc := NewChunkServiceWithDeps(staticMineSeasonReader{season: season}, store)
+
+	level5, err := svc.GetChunkSummary(context.Background(), "cn:5:4:10")
+	if err != nil {
+		t.Fatalf("GetChunkSummary level5 returned error: %v", err)
+	}
+	if level5.Closed || level5.State != "closing" || level5.ClosedLeafCount != 1 || level5.TotalLeafCount != 4 || level5.ClosedRatio != 0.25 {
+		t.Fatalf("unexpected level5 aggregate: %+v", level5)
+	}
+
+	level4, err := svc.GetChunkSummary(context.Background(), "cn:4:2:5")
+	if err != nil {
+		t.Fatalf("GetChunkSummary level4 returned error: %v", err)
+	}
+	if level4.Closed || level4.State != "closing" || level4.ClosedLeafCount != 1 || level4.TotalLeafCount != 16 || level4.ClosedRatio != 0.0625 {
+		t.Fatalf("unexpected level4 aggregate: %+v", level4)
+	}
+
+	level0, err := svc.GetChunkSummary(context.Background(), "cn:0:0:0")
+	if err != nil {
+		t.Fatalf("GetChunkSummary level0 returned error: %v", err)
+	}
+	if level0.Closed || level0.State != "closing" || level0.ClosedLeafCount != 2 || level0.TotalLeafCount != 4096 {
+		t.Fatalf("unexpected level0 aggregate: %+v", level0)
+	}
+}
+
 type staticMineSeasonReader struct {
 	season *model.MineSeason
 }
@@ -138,6 +201,16 @@ func (s *memoryMineChunkStateStore) GetState(ctx context.Context, seasonID int64
 func (s *memoryMineChunkStateStore) SaveState(ctx context.Context, state *model.MineChunkState) error {
 	s.items[state.ChunkID] = state
 	return nil
+}
+
+func (s *memoryMineChunkStateStore) ListClosedLeafChunkIDs(ctx context.Context, seasonID int64) (map[string]bool, error) {
+	closed := make(map[string]bool)
+	for chunkID, state := range s.items {
+		if state.SeasonID == seasonID && state.Closed {
+			closed[chunkID] = true
+		}
+	}
+	return closed, nil
 }
 
 func testServiceMineSeason() *model.MineSeason {

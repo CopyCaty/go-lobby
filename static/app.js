@@ -50,8 +50,7 @@ const chunkDemo = {
   maxLevel: 6,
   level: 0,
   minGridLevel: 6,
-  maxZoom: 512,
-  detailLevelZoom: 24,
+  maxZoom: 4096,
   zoom: 1,
   centerX: 0.5,
   centerY: 0.5,
@@ -464,11 +463,19 @@ function cellIndex(x, y) {
   return y * chunkDemo.size + x;
 }
 
-function chunkColorFor(state) {
+function chunkColorFor(chunkOrState) {
+  if (typeof chunkOrState === "object" && chunkOrState) {
+    if (chunkOrState.closed) return "rgba(127, 29, 29, 0.82)";
+    const ratio = Number(chunkOrState.closed_ratio || 0);
+    if (ratio > 0) return closedRatioColor(ratio);
+    return chunkColorFor(chunkOrState.state);
+  }
+  const state = chunkOrState;
   const colors = {
     normal: "rgba(45, 92, 76, 0.58)",
     opening: "rgba(216, 179, 75, 0.72)",
     hot: "rgba(223, 124, 63, 0.76)",
+    closing: "rgba(223, 124, 63, 0.76)",
     hidden: "rgba(20, 38, 32, 0.64)",
     opened: "#a7c7b9",
     flagged: "#f4c95d",
@@ -477,11 +484,24 @@ function chunkColorFor(state) {
   return colors[state] || colors.normal;
 }
 
+function closedRatioColor(ratio) {
+  const clamped = Math.max(0, Math.min(1, ratio));
+  const start = [45, 92, 76];
+  const mid = [216, 179, 75];
+  const end = [127, 29, 29];
+  const from = clamped < 0.5 ? start : mid;
+  const to = clamped < 0.5 ? mid : end;
+  const t = clamped < 0.5 ? clamped * 2 : (clamped - 0.5) * 2;
+  const mixed = from.map((value, index) => Math.round(value + (to[index] - value) * t));
+  return `rgba(${mixed[0]}, ${mixed[1]}, ${mixed[2]}, ${0.58 + clamped * 0.28})`;
+}
+
 function chunkStateText(state) {
   const map = {
     normal: "普通",
     opening: "探索中",
     hot: "活跃",
+    closing: "封闭扩散",
     hidden: "未探索",
     opened: "已打开",
     flagged: "已标记",
@@ -495,8 +515,7 @@ function chunkGridSize(level) {
 }
 
 function mapLevelForZoom() {
-  if (chunkDemo.zoom >= chunkDemo.detailLevelZoom) return chunkDemo.maxLevel;
-  return Math.max(0, Math.min(chunkDemo.maxLevel - 1, Math.floor(Math.log2(chunkDemo.zoom))));
+  return Math.max(0, Math.min(chunkDemo.maxLevel, Math.floor(Math.log2(chunkDemo.zoom))));
 }
 
 function resizeMapCanvas() {
@@ -720,15 +739,28 @@ function drawChunkRect(ctx, canvas, chunk) {
   const end = worldToScreen(bounds.max_x, bounds.max_y, canvas);
   const width = end.x - start.x;
   const height = end.y - start.y;
-  ctx.fillStyle = chunkColorFor(chunk.state);
+  ctx.fillStyle = chunkColorFor(chunk);
   ctx.fillRect(start.x, start.y, width, height);
-  ctx.strokeStyle = chunk.closed ? "rgba(248, 113, 113, 0.95)" : "rgba(236, 244, 239, 0.20)";
-  ctx.lineWidth = chunk.closed ? 2 : 1;
+  const ratio = Number(chunk.closed_ratio || 0);
+  ctx.strokeStyle = ratio > 0 ? "rgba(248, 113, 113, 0.82)" : "rgba(236, 244, 239, 0.20)";
+  ctx.lineWidth = ratio > 0 ? 2 : 1;
   ctx.strokeRect(start.x + 0.5, start.y + 0.5, width, height);
   if (chunk.level < chunkDemo.maxLevel) {
+    ctx.strokeStyle = "rgba(236, 244, 239, 0.18)";
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(start.x + width / 2, start.y);
+    ctx.lineTo(start.x + width / 2, end.y);
+    ctx.moveTo(start.x, start.y + height / 2);
+    ctx.lineTo(end.x, start.y + height / 2);
+    ctx.stroke();
+
     ctx.fillStyle = "rgba(236, 244, 239, 0.74)";
     ctx.font = "12px sans-serif";
     ctx.fillText(chunk.chunk_id, start.x + 8, start.y + 18);
+    if (chunk.total_leaf_count > 1) {
+      ctx.fillText(`${chunk.closed_leaf_count || 0}/${chunk.total_leaf_count}`, start.x + 8, start.y + 34);
+    }
   }
 }
 
@@ -1022,7 +1054,7 @@ function updateMapHUD() {
   if (chunkDemo.hoveredCell) {
     const cell = chunkDemo.hoveredCell;
     if (cell.x === undefined) {
-      text("chunk_cell_state", `${chunkStateText(cell.chunk.state)} (${cell.chunk.state})`);
+      text("chunk_cell_state", chunkAggregateText(cell.chunk));
       return;
     }
     text("chunk_hover", `cell_x=${cell.x}, cell_y=${cell.y}, index=${cell.index}`);
@@ -1037,7 +1069,15 @@ function updateMapHUD() {
     }
     return;
   }
-  text("chunk_cell_state", chunkDemo.hoveredChunk ? `${chunkStateText(chunkDemo.hoveredChunk.state)} (${chunkDemo.hoveredChunk.state})` : "-");
+  text("chunk_cell_state", chunkDemo.hoveredChunk ? chunkAggregateText(chunkDemo.hoveredChunk) : "-");
+}
+
+function chunkAggregateText(chunk) {
+  const state = `${chunkStateText(chunk.state)} (${chunk.state})`;
+  if (Number(chunk.total_leaf_count || 0) > 1) {
+    return `${state} · 封闭叶子 ${chunk.closed_leaf_count || 0}/${chunk.total_leaf_count}`;
+  }
+  return state;
 }
 
 function scheduleMapLoad() {

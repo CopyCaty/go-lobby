@@ -24,6 +24,7 @@ type MineSeasonReader interface {
 type MineChunkStateStore interface {
 	GetState(ctx context.Context, seasonID int64, chunkID string) (*model.MineChunkState, error)
 	SaveState(ctx context.Context, state *model.MineChunkState) error
+	ListClosedLeafChunkIDs(ctx context.Context, seasonID int64) (map[string]bool, error)
 }
 
 type ChunkService struct {
@@ -54,22 +55,26 @@ func (s *ChunkService) GetChunkSummary(ctx context.Context, rawChunkID string) (
 	if !s.hasMineDeps() {
 		return buildDemoChunkSummary(chunkID)
 	}
-	summary, err := buildDemoChunkSummary(chunkID)
+	summary, err := buildBaseChunkSummary(chunkID)
 	if err != nil {
 		return nil, err
-	}
-	if chunkID.Z != model.ChunkMaxLevel {
-		return summary, nil
 	}
 	season, err := s.activeSeason(ctx)
 	if err != nil {
 		return nil, err
 	}
-	state, err := s.loadChunkState(ctx, season.ID, chunkID.String())
+	closedLeafIDs, err := s.stateStore.ListClosedLeafChunkIDs(ctx, season.ID)
 	if err != nil {
 		return nil, err
 	}
-	applyMineStateToSummary(summary, state)
+	if chunkID.Z == model.ChunkMaxLevel {
+		state, err := s.loadChunkState(ctx, season.ID, chunkID.String())
+		if err != nil {
+			return nil, err
+		}
+		applyMineStateToSummary(summary, state)
+	}
+	applyClosedLeafAggregate(summary, chunkID, closedLeafIDs)
 	return summary, nil
 }
 
@@ -124,8 +129,13 @@ func (s *ChunkService) ListChunks(ctx context.Context, level int, bbox model.Chu
 		return nil, ErrInvalidChunkID
 	}
 	var season *model.MineSeason
-	if s.hasMineDeps() && level == model.ChunkMaxLevel {
+	var closedLeafIDs map[string]bool
+	if s.hasMineDeps() {
 		season, err = s.activeSeason(ctx)
+		if err != nil {
+			return nil, err
+		}
+		closedLeafIDs, err = s.stateStore.ListClosedLeafChunkIDs(ctx, season.ID)
 		if err != nil {
 			return nil, err
 		}
@@ -134,21 +144,29 @@ func (s *ChunkService) ListChunks(ctx context.Context, level int, bbox model.Chu
 	chunks := make([]res.ChunkSummaryResponse, 0, (maxX-minX+1)*(maxY-minY+1))
 	for y := minY; y <= maxY; y++ {
 		for x := minX; x <= maxX; x++ {
-			summary, err := buildDemoChunkSummary(model.ChunkID{
+			chunkID := model.ChunkID{
 				Region: "cn",
 				Z:      level,
 				X:      x,
 				Y:      y,
-			})
+			}
+			summary, err := buildDemoChunkSummary(chunkID)
 			if err != nil {
 				return nil, err
 			}
-			if season != nil {
+			if s.hasMineDeps() {
+				summary, err = buildBaseChunkSummary(chunkID)
+				if err != nil {
+					return nil, err
+				}
 				state, err := s.loadChunkState(ctx, season.ID, summary.ChunkID)
 				if err != nil {
 					return nil, err
 				}
-				applyMineStateToSummary(summary, state)
+				if level == model.ChunkMaxLevel {
+					applyMineStateToSummary(summary, state)
+				}
+				applyClosedLeafAggregate(summary, chunkID, closedLeafIDs)
 			}
 			chunks = append(chunks, *summary)
 		}
@@ -414,6 +432,62 @@ func applyMineStateToSummary(summary *res.ChunkSummaryResponse, state *model.Min
 	}
 }
 
+func applyClosedLeafAggregate(summary *res.ChunkSummaryResponse, chunkID model.ChunkID, closedLeafIDs map[string]bool) {
+	totalLeafCount := totalLeafCountForLevel(chunkID.Z)
+	closedLeafCount := countClosedLeaves(chunkID, closedLeafIDs)
+	summary.TotalLeafCount = totalLeafCount
+	summary.ClosedLeafCount = closedLeafCount
+	if totalLeafCount > 0 {
+		summary.ClosedRatio = float64(closedLeafCount) / float64(totalLeafCount)
+	}
+
+	if chunkID.Z == model.ChunkMaxLevel {
+		summary.Closed = closedLeafCount == 1
+	}
+	switch {
+	case closedLeafCount == totalLeafCount && totalLeafCount > 0:
+		summary.State = "closed"
+	case closedLeafCount > 0:
+		summary.State = "closing"
+	case summary.OpenedCount > 0:
+		summary.State = "opening"
+	default:
+		summary.State = "normal"
+	}
+}
+
+func countClosedLeaves(chunkID model.ChunkID, closedLeafIDs map[string]bool) int {
+	if len(closedLeafIDs) == 0 {
+		return 0
+	}
+	minX, minY, maxX, maxY := leafRangeForChunk(chunkID)
+	count := 0
+	for rawLeafID := range closedLeafIDs {
+		leafID, err := model.ParseChunkID(rawLeafID)
+		if err != nil || leafID.Region != chunkID.Region || leafID.Z != model.ChunkMaxLevel {
+			continue
+		}
+		if leafID.X >= minX && leafID.X < maxX && leafID.Y >= minY && leafID.Y < maxY {
+			count++
+		}
+	}
+	return count
+}
+
+func leafRangeForChunk(chunkID model.ChunkID) (minX, minY, maxX, maxY int) {
+	scale := 1 << (model.ChunkMaxLevel - chunkID.Z)
+	minX = chunkID.X * scale
+	minY = chunkID.Y * scale
+	maxX = (chunkID.X + 1) * scale
+	maxY = (chunkID.Y + 1) * scale
+	return minX, minY, maxX, maxY
+}
+
+func totalLeafCountForLevel(level int) int {
+	scale := 1 << (model.ChunkMaxLevel - level)
+	return scale * scale
+}
+
 func buildSnapshotFromState(chunkID model.ChunkID, state *model.MineChunkState) *res.ChunkSnapshotResponse {
 	snapshot := &res.ChunkSnapshotResponse{
 		ChunkID: chunkID.String(),
@@ -484,25 +558,36 @@ func parsePlayableChunkID(rawChunkID string) (model.ChunkID, error) {
 }
 
 func buildDemoChunkSummary(chunkID model.ChunkID) (*res.ChunkSummaryResponse, error) {
+	summary, err := buildBaseChunkSummary(chunkID)
+	if err != nil {
+		return nil, err
+	}
+	state := demoChunkState(chunkID)
+	summary.State = state
+	summary.Closed = state == "closed"
+	summary.Version = int64(1 + chunkID.Z*10000 + chunkID.Y*100 + chunkID.X)
+	summary.OpenedCount = demoOpenedCount(chunkID)
+	return summary, nil
+}
+
+func buildBaseChunkSummary(chunkID model.ChunkID) (*res.ChunkSummaryResponse, error) {
 	bounds, err := model.ChunkBoundsFor(chunkID.Z, chunkID.X, chunkID.Y)
 	if err != nil {
 		return nil, ErrInvalidChunkID
 	}
-	state := demoChunkState(chunkID)
 	return &res.ChunkSummaryResponse{
-		ChunkID:     chunkID.String(),
-		Region:      chunkID.Region,
-		Z:           chunkID.Z,
-		Level:       chunkID.Z,
-		X:           chunkID.X,
-		Y:           chunkID.Y,
-		Bounds:      bounds,
-		Width:       model.ChunkSize,
-		Height:      model.ChunkSize,
-		State:       state,
-		Closed:      state == "closed",
-		Version:     int64(1 + chunkID.Z*10000 + chunkID.Y*100 + chunkID.X),
-		OpenedCount: demoOpenedCount(chunkID),
+		ChunkID:        chunkID.String(),
+		Region:         chunkID.Region,
+		Z:              chunkID.Z,
+		Level:          chunkID.Z,
+		X:              chunkID.X,
+		Y:              chunkID.Y,
+		Bounds:         bounds,
+		Width:          model.ChunkSize,
+		Height:         model.ChunkSize,
+		State:          "normal",
+		Version:        1,
+		TotalLeafCount: totalLeafCountForLevel(chunkID.Z),
 	}, nil
 }
 
