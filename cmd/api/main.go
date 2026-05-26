@@ -67,6 +67,10 @@ func main() {
 	leaderboardRepo := repository.NewLeaderboardRepository(redisClient)
 	rankService := service.NewRankService(rankRepo, matchRepo, leaderboardRepo)
 	leaderboardHandler := handler.NewLeaderboardHandler(rankService)
+	mineSeasonRepo := repository.NewMineSeasonRepository(db)
+	mineChunkStateRepo := repository.NewMineChunkStateRepository(redisClient)
+	chunkService := service.NewChunkServiceWithDeps(mineSeasonRepo, mineChunkStateRepo)
+	chunkHandler := handler.NewChunkHandler(chunkService)
 
 	r := gin.Default()
 
@@ -78,6 +82,9 @@ func main() {
 	{
 		v1.POST("/users/register", userHandler.RegisterUser)
 		v1.POST("/users/login", userHandler.LoginUser)
+		v1.GET("/map/chunks", chunkHandler.ListChunks)
+		v1.GET("/map/chunks/:chunk_id", chunkHandler.GetChunk)
+		v1.GET("/map/chunks/:chunk_id/snapshot", chunkHandler.GetSnapshot)
 
 		authGroup := v1.Group("/")
 		authGroup.Use(middleware.AuthMiddleware(jwtManager))
@@ -90,6 +97,8 @@ func main() {
 			}
 
 			authGroup.GET("/me", userHandler.Me)
+			authGroup.POST("/map/chunks/:chunk_id/open", chunkHandler.OpenCell)
+			authGroup.POST("/map/chunks/:chunk_id/flag", chunkHandler.FlagCell)
 
 			matchGroup := authGroup.Group("/match")
 			{

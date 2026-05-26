@@ -33,11 +33,43 @@ const routeMeta = {
     title: "排行榜",
     desc: "查看不同模式下的玩家积分榜。",
   },
+  "#/map": {
+    kicker: "Chunk Pyramid",
+    title: "中国地图",
+    desc: "拖拽缩放查看中国地图 Chunk 金字塔，放大后自动进入 128x128 最低级 Chunk。",
+  },
   "#/debug": {
     kicker: "Debug",
     title: "开发调试",
     desc: "查看 token、接口地址、原始响应和操作日志。",
   },
+};
+
+const chunkDemo = {
+  region: "cn",
+  maxLevel: 6,
+  level: 0,
+  minGridLevel: 6,
+  maxZoom: 512,
+  detailLevelZoom: 24,
+  zoom: 1,
+  centerX: 0.5,
+  centerY: 0.5,
+  size: 128,
+  chunks: [],
+  snapshots: new Map(),
+  pendingSnapshots: new Set(),
+  flags: new Map(),
+  hoveredChunk: null,
+  hoveredCell: null,
+  dragging: false,
+  dragStart: null,
+  dragMoved: false,
+  actionPending: false,
+  lastAction: "",
+  loadTimer: null,
+  lastBBox: null,
+  fallback: false,
 };
 
 const appState = {
@@ -200,6 +232,13 @@ function setRoute(hash) {
   text("page_kicker", meta.kicker);
   text("page_title", meta.title);
   text("page_desc", meta.desc);
+  document.body.classList.toggle("map-route", route === "#/map");
+
+  if (route === "#/map") {
+    startMapView().catch((error) => {
+      addLog("Chunk 渲染失败", String(error.message || error));
+    });
+  }
 }
 
 function updatePlayerHeader() {
@@ -419,6 +458,619 @@ function syncLeaderboardView(data) {
   renderLeaderboard(items);
   renderLeaderboardPreview(items);
   setBadge("leaderboard_status", items.length ? `${items.length} 名玩家` : "空榜", items.length ? "ok" : "warn");
+}
+
+function cellIndex(x, y) {
+  return y * chunkDemo.size + x;
+}
+
+function chunkColorFor(state) {
+  const colors = {
+    normal: "rgba(45, 92, 76, 0.58)",
+    opening: "rgba(216, 179, 75, 0.72)",
+    hot: "rgba(223, 124, 63, 0.76)",
+    hidden: "rgba(20, 38, 32, 0.64)",
+    opened: "#a7c7b9",
+    flagged: "#f4c95d",
+    closed: "rgba(127, 29, 29, 0.82)",
+  };
+  return colors[state] || colors.normal;
+}
+
+function chunkStateText(state) {
+  const map = {
+    normal: "普通",
+    opening: "探索中",
+    hot: "活跃",
+    hidden: "未探索",
+    opened: "已打开",
+    flagged: "已标记",
+    closed: "封闭",
+  };
+  return map[state] || state || "-";
+}
+
+function chunkGridSize(level) {
+  return 2 ** level;
+}
+
+function mapLevelForZoom() {
+  if (chunkDemo.zoom >= chunkDemo.detailLevelZoom) return chunkDemo.maxLevel;
+  return Math.max(0, Math.min(chunkDemo.maxLevel - 1, Math.floor(Math.log2(chunkDemo.zoom))));
+}
+
+function resizeMapCanvas() {
+  const canvas = $("chunk_canvas");
+  if (!canvas) return null;
+  const rect = canvas.getBoundingClientRect();
+  const ratio = window.devicePixelRatio || 1;
+  const width = Math.max(640, Math.floor(rect.width * ratio));
+  const height = Math.max(420, Math.floor(rect.height * ratio));
+  if (canvas.width !== width || canvas.height !== height) {
+    canvas.width = width;
+    canvas.height = height;
+  }
+  return { canvas, ratio, cssWidth: rect.width, cssHeight: rect.height };
+}
+
+function mapScale(canvas) {
+  return Math.min(canvas.width, canvas.height) * 0.82 * chunkDemo.zoom;
+}
+
+function worldToScreen(x, y, canvas) {
+  const scale = mapScale(canvas);
+  return {
+    x: canvas.width / 2 + (x - chunkDemo.centerX) * scale,
+    y: canvas.height / 2 + (y - chunkDemo.centerY) * scale,
+  };
+}
+
+function screenToWorld(clientX, clientY) {
+  const canvas = $("chunk_canvas");
+  if (!canvas) return null;
+  const rect = canvas.getBoundingClientRect();
+  const ratio = window.devicePixelRatio || 1;
+  const scale = mapScale(canvas);
+  return {
+    x: chunkDemo.centerX + ((clientX - rect.left) * ratio - canvas.width / 2) / scale,
+    y: chunkDemo.centerY + ((clientY - rect.top) * ratio - canvas.height / 2) / scale,
+  };
+}
+
+function currentMapBBox(canvas) {
+  const scale = mapScale(canvas);
+  const halfW = canvas.width / 2 / scale;
+  const halfH = canvas.height / 2 / scale;
+  return {
+    min_x: Math.max(0, chunkDemo.centerX - halfW),
+    min_y: Math.max(0, chunkDemo.centerY - halfH),
+    max_x: Math.min(1, chunkDemo.centerX + halfW),
+    max_y: Math.min(1, chunkDemo.centerY + halfH),
+  };
+}
+
+function clampMapCenter() {
+  chunkDemo.centerX = Math.max(0, Math.min(1, chunkDemo.centerX));
+  chunkDemo.centerY = Math.max(0, Math.min(1, chunkDemo.centerY));
+}
+
+function formatBBox(bbox) {
+  return `${bbox.min_x.toFixed(3)},${bbox.min_y.toFixed(3)} - ${bbox.max_x.toFixed(3)},${bbox.max_y.toFixed(3)}`;
+}
+
+function fallbackChunks(level, bbox) {
+  const grid = chunkGridSize(level);
+  const minX = Math.max(0, Math.min(grid - 1, Math.floor(bbox.min_x * grid)));
+  const minY = Math.max(0, Math.min(grid - 1, Math.floor(bbox.min_y * grid)));
+  const maxX = Math.max(0, Math.min(grid - 1, Math.floor((bbox.max_x - 0.000000001) * grid)));
+  const maxY = Math.max(0, Math.min(grid - 1, Math.floor((bbox.max_y - 0.000000001) * grid)));
+  const chunks = [];
+  for (let y = minY; y <= maxY; y += 1) {
+    for (let x = minX; x <= maxX; x += 1) {
+      const score = (x * 31 + y * 17 + level * 13) % 23;
+      const state = score === 0 || score === 7 ? "closed" : score === 3 || score === 11 ? "hot" : score === 5 || score === 19 ? "opening" : "normal";
+      chunks.push({
+        chunk_id: `cn:${level}:${x}:${y}`,
+        region: "cn",
+        level,
+        z: level,
+        x,
+        y,
+        state,
+        closed: state === "closed",
+        opened_count: 80 + ((x * 43 + y * 29 + level * 97) % 600),
+        bounds: {
+          min_x: x / grid,
+          min_y: y / grid,
+          max_x: (x + 1) / grid,
+          max_y: (y + 1) / grid,
+        },
+      });
+    }
+  }
+  return chunks;
+}
+
+async function mapFetchJSON(url) {
+  const resp = await fetch(url);
+  const data = await resp.json().catch(() => ({}));
+  if (!resp.ok || data.code !== 0) {
+    throw new Error(data.message || `HTTP ${resp.status}`);
+  }
+  return payloadOf(data);
+}
+
+async function mapActionRequest(label, url, body) {
+  const data = await apiRequest(label, url, {
+    method: "POST",
+    headers: authHeaders({ "Content-Type": "application/json" }),
+    body: JSON.stringify(body),
+  });
+  return payloadOf(data);
+}
+
+async function loadVisibleChunks() {
+  const canvasInfo = resizeMapCanvas();
+  if (!canvasInfo) return;
+  chunkDemo.level = mapLevelForZoom();
+  const bbox = currentMapBBox(canvasInfo.canvas);
+  chunkDemo.lastBBox = bbox;
+  const params = new URLSearchParams({
+    level: String(chunkDemo.level),
+    min_x: String(bbox.min_x),
+    min_y: String(bbox.min_y),
+    max_x: String(bbox.max_x),
+    max_y: String(bbox.max_y),
+  });
+
+  setBadge("chunk_status", "加载中", "warn");
+  try {
+    const payload = await mapFetchJSON(`/api/v1/map/chunks?${params.toString()}`);
+    chunkDemo.chunks = payload.chunks || [];
+    pruneInvisibleFlags();
+    chunkDemo.fallback = false;
+    setBadge("chunk_status", chunkDemo.level === chunkDemo.maxLevel ? "最低级 Chunk" : "聚合层", "ok");
+  } catch (error) {
+    chunkDemo.chunks = fallbackChunks(chunkDemo.level, bbox);
+    pruneInvisibleFlags();
+    chunkDemo.fallback = true;
+    setBadge("chunk_status", "本地 fallback", "warn");
+    addLog("地图 Chunk 接口不可用", String(error.message || error));
+  }
+
+  if (chunkDemo.level === chunkDemo.maxLevel) {
+    await loadVisibleSnapshots();
+  }
+  drawChunkCanvas();
+}
+
+function pruneInvisibleFlags() {
+  const visibleIDs = new Set(chunkDemo.chunks.map((chunk) => chunk.chunk_id));
+  [...chunkDemo.flags.keys()].forEach((chunkID) => {
+    if (!visibleIDs.has(chunkID)) chunkDemo.flags.delete(chunkID);
+  });
+}
+
+async function loadVisibleSnapshots() {
+  const tasks = chunkDemo.chunks.map((chunk) => {
+    if (chunkDemo.snapshots.has(chunk.chunk_id) || chunkDemo.pendingSnapshots.has(chunk.chunk_id)) {
+      return Promise.resolve();
+    }
+    chunkDemo.pendingSnapshots.add(chunk.chunk_id);
+    return mapFetchJSON(`/api/v1/map/chunks/${encodeURIComponent(chunk.chunk_id)}/snapshot`)
+      .then((snapshot) => {
+        chunkDemo.snapshots.set(chunk.chunk_id, snapshot);
+      })
+      .catch((error) => {
+        addLog("Chunk 快照不可用", `${chunk.chunk_id}: ${String(error.message || error)}`);
+      })
+      .finally(() => {
+        chunkDemo.pendingSnapshots.delete(chunk.chunk_id);
+      });
+  });
+  await Promise.all(tasks);
+}
+
+function openedCellInSnapshot(chunkID, x, y) {
+  const snapshot = chunkDemo.snapshots.get(chunkID);
+  return snapshot?.opened_cells?.find((cell) => Number(cell.x) === x && Number(cell.y) === y) || null;
+}
+
+function flaggedCellsFor(chunkID) {
+  if (!chunkDemo.flags.has(chunkID)) {
+    chunkDemo.flags.set(chunkID, new Map());
+  }
+  return chunkDemo.flags.get(chunkID);
+}
+
+function isCellFlagged(chunkID, index) {
+  return Boolean(chunkDemo.flags.get(chunkID)?.get(index));
+}
+
+function setCellFlag(chunkID, index, flagged) {
+  const flags = flaggedCellsFor(chunkID);
+  if (flagged) flags.set(index, true);
+  else flags.delete(index);
+  if (flags.size === 0) chunkDemo.flags.delete(chunkID);
+}
+
+function drawChinaShape(ctx, canvas) {
+  const points = [
+    [0.20, 0.20], [0.33, 0.13], [0.52, 0.16], [0.66, 0.23], [0.76, 0.35],
+    [0.84, 0.49], [0.75, 0.62], [0.66, 0.76], [0.50, 0.84], [0.35, 0.78],
+    [0.24, 0.66], [0.16, 0.50], [0.12, 0.34],
+  ];
+  ctx.beginPath();
+  points.forEach(([x, y], index) => {
+    const p = worldToScreen(x, y, canvas);
+    if (index === 0) ctx.moveTo(p.x, p.y);
+    else ctx.lineTo(p.x, p.y);
+  });
+  ctx.closePath();
+  ctx.fillStyle = "rgba(26, 55, 46, 0.54)";
+  ctx.fill();
+  ctx.strokeStyle = "rgba(167, 199, 185, 0.56)";
+  ctx.lineWidth = 2;
+  ctx.stroke();
+}
+
+function drawChunkRect(ctx, canvas, chunk) {
+  const bounds = chunk.bounds;
+  const start = worldToScreen(bounds.min_x, bounds.min_y, canvas);
+  const end = worldToScreen(bounds.max_x, bounds.max_y, canvas);
+  const width = end.x - start.x;
+  const height = end.y - start.y;
+  ctx.fillStyle = chunkColorFor(chunk.state);
+  ctx.fillRect(start.x, start.y, width, height);
+  ctx.strokeStyle = chunk.closed ? "rgba(248, 113, 113, 0.95)" : "rgba(236, 244, 239, 0.20)";
+  ctx.lineWidth = chunk.closed ? 2 : 1;
+  ctx.strokeRect(start.x + 0.5, start.y + 0.5, width, height);
+  if (chunk.level < chunkDemo.maxLevel) {
+    ctx.fillStyle = "rgba(236, 244, 239, 0.74)";
+    ctx.font = "12px sans-serif";
+    ctx.fillText(chunk.chunk_id, start.x + 8, start.y + 18);
+  }
+}
+
+function drawSnapshotCells(ctx, canvas, chunk) {
+  const bounds = chunk.bounds;
+  const start = worldToScreen(bounds.min_x, bounds.min_y, canvas);
+  const end = worldToScreen(bounds.max_x, bounds.max_y, canvas);
+  const width = end.x - start.x;
+  const height = end.y - start.y;
+  const cellW = width / chunkDemo.size;
+  const cellH = height / chunkDemo.size;
+  ctx.fillStyle = chunk.closed ? chunkColorFor("closed") : "rgba(20, 38, 32, 0.76)";
+  ctx.fillRect(start.x, start.y, width, height);
+
+  const snapshot = chunkDemo.snapshots.get(chunk.chunk_id);
+  const openedCells = snapshot?.opened_cells || [];
+  ctx.fillStyle = chunkColorFor("opened");
+  openedCells.forEach((cell) => {
+    ctx.fillRect(start.x + cell.x * cellW, start.y + cell.y * cellH, Math.max(1, cellW), Math.max(1, cellH));
+  });
+
+  const flags = chunkDemo.flags.get(chunk.chunk_id);
+  if (flags && flags.size > 0) {
+    ctx.fillStyle = chunkColorFor("flagged");
+    flags.forEach((_, index) => {
+      const x = index % chunkDemo.size;
+      const y = Math.floor(index / chunkDemo.size);
+      const left = start.x + x * cellW;
+      const top = start.y + y * cellH;
+      ctx.beginPath();
+      ctx.moveTo(left + cellW * 0.28, top + cellH * 0.22);
+      ctx.lineTo(left + cellW * 0.76, top + cellH * 0.44);
+      ctx.lineTo(left + cellW * 0.28, top + cellH * 0.66);
+      ctx.closePath();
+      ctx.fill();
+      if (cellW >= 8) {
+        ctx.strokeStyle = "rgba(255, 255, 255, 0.72)";
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.moveTo(left + cellW * 0.28, top + cellH * 0.22);
+        ctx.lineTo(left + cellW * 0.28, top + cellH * 0.82);
+        ctx.stroke();
+      }
+    });
+  }
+
+  if (cellW >= 12) {
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.font = `${Math.max(10, Math.min(18, cellW * 0.42))}px sans-serif`;
+    ctx.fillStyle = "#12352a";
+    openedCells.forEach((cell) => {
+      const adjacentMines = Number(cell.adjacent_mines || 0);
+      if (adjacentMines <= 0) return;
+      ctx.fillText(String(adjacentMines), start.x + (cell.x + 0.5) * cellW, start.y + (cell.y + 0.5) * cellH);
+    });
+    ctx.textAlign = "start";
+    ctx.textBaseline = "alphabetic";
+  }
+
+  ctx.strokeStyle = chunk.closed ? "rgba(248, 113, 113, 0.95)" : "rgba(236, 244, 239, 0.24)";
+  ctx.lineWidth = chunk.closed ? 2 : 1;
+  ctx.strokeRect(start.x + 0.5, start.y + 0.5, width, height);
+
+  if (cellW >= 12) {
+    ctx.strokeStyle = "rgba(236, 244, 239, 0.12)";
+    ctx.lineWidth = 1;
+    for (let i = 0; i <= chunkDemo.size; i += 1) {
+      const x = Math.round(start.x + i * cellW) + 0.5;
+      const y = Math.round(start.y + i * cellH) + 0.5;
+      ctx.beginPath();
+      ctx.moveTo(x, start.y);
+      ctx.lineTo(x, end.y);
+      ctx.moveTo(start.x, y);
+      ctx.lineTo(end.x, y);
+      ctx.stroke();
+    }
+  } else if (cellW >= 3) {
+    ctx.strokeStyle = "rgba(236, 244, 239, 0.065)";
+    ctx.lineWidth = 1;
+    for (let i = 0; i <= chunkDemo.size; i += 8) {
+      const x = Math.round(start.x + i * cellW) + 0.5;
+      const y = Math.round(start.y + i * cellH) + 0.5;
+      ctx.beginPath();
+      ctx.moveTo(x, start.y);
+      ctx.lineTo(x, end.y);
+      ctx.moveTo(start.x, y);
+      ctx.lineTo(end.x, y);
+      ctx.stroke();
+    }
+  }
+}
+
+function drawChunkCanvas() {
+  const canvasInfo = resizeMapCanvas();
+  if (!canvasInfo) return;
+  const { canvas } = canvasInfo;
+  const ctx = canvas.getContext("2d");
+
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  const gradient = ctx.createLinearGradient(0, 0, canvas.width, canvas.height);
+  gradient.addColorStop(0, "#081512");
+  gradient.addColorStop(1, "#102019");
+  ctx.fillStyle = gradient;
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  drawChinaShape(ctx, canvas);
+
+  chunkDemo.chunks.forEach((chunk) => {
+    if (chunkDemo.level === chunkDemo.maxLevel) drawSnapshotCells(ctx, canvas, chunk);
+    else drawChunkRect(ctx, canvas, chunk);
+  });
+
+  updateMapHUD();
+}
+
+function updateChunkHover(event) {
+  if (chunkDemo.dragging) return;
+  const hit = mapCellHit(event.clientX, event.clientY);
+  chunkDemo.hoveredChunk = hit?.chunk || null;
+  chunkDemo.hoveredCell = hit || null;
+  updateMapHUD();
+}
+
+function mapCellHit(clientX, clientY) {
+  const world = screenToWorld(clientX, clientY);
+  if (!world) return null;
+  const chunk = chunkDemo.chunks.find((item) => {
+    const b = item.bounds;
+    return world.x >= b.min_x && world.x < b.max_x && world.y >= b.min_y && world.y < b.max_y;
+  });
+  if (!chunk) return null;
+  if (chunkDemo.level !== chunkDemo.maxLevel) {
+    return { chunk };
+  }
+  const b = chunk.bounds;
+  const x = Math.max(0, Math.min(chunkDemo.size - 1, Math.floor(((world.x - b.min_x) / (b.max_x - b.min_x)) * chunkDemo.size)));
+  const y = Math.max(0, Math.min(chunkDemo.size - 1, Math.floor(((world.y - b.min_y) / (b.max_y - b.min_y)) * chunkDemo.size)));
+  const index = cellIndex(x, y);
+  const opened = openedCellInSnapshot(chunk.chunk_id, x, y);
+  const flagged = isCellFlagged(chunk.chunk_id, index);
+  return { chunk, x, y, index, opened, flagged };
+}
+
+function canActOnHit(hit, action) {
+  if (!hit?.chunk || hit.x === undefined || hit.y === undefined) return "请先放大到最低级 Chunk";
+  if (!appState.token) return "请先登录后再操作地图";
+  if (chunkDemo.fallback) return "当前使用本地 fallback，不能提交操作";
+  if (chunkDemo.actionPending) return "上一次地图操作尚未完成";
+  if (hit.chunk.closed) return "chunk 已封闭";
+  if (hit.opened) return action === "flag" ? "已打开格子不能标记" : "";
+  if (action === "open" && hit.flagged) return "已标记格子需要先取消标记";
+  return "";
+}
+
+function ensureSnapshot(chunkID) {
+  const snapshot = chunkDemo.snapshots.get(chunkID) || {
+    chunk_id: chunkID,
+    width: chunkDemo.size,
+    height: chunkDemo.size,
+    closed: false,
+    version: 1,
+    opened_cells: [],
+  };
+  if (!Array.isArray(snapshot.opened_cells)) snapshot.opened_cells = [];
+  chunkDemo.snapshots.set(chunkID, snapshot);
+  return snapshot;
+}
+
+function upsertOpenedCell(chunkID, result) {
+  const snapshot = ensureSnapshot(chunkID);
+  const x = Number(result.x);
+  const y = Number(result.y);
+  const index = Number(result.index ?? cellIndex(x, y));
+  const nextCell = {
+    x,
+    y,
+    index,
+    adjacent_mines: Number(result.adjacent_mines || 0),
+    opened_by: appState.user ? { user_id: appState.user.user_id || appState.user.id || 0, nickname: appState.user.nickname || "" } : { user_id: 0, nickname: "" },
+    opened_at: result.opened_at || new Date().toISOString(),
+  };
+  const existingIndex = snapshot.opened_cells.findIndex((cell) => Number(cell.index) === index);
+  if (existingIndex >= 0) snapshot.opened_cells[existingIndex] = nextCell;
+  else snapshot.opened_cells.push(nextCell);
+  snapshot.version = result.version || snapshot.version;
+  setCellFlag(chunkID, index, false);
+}
+
+function upsertOpenedCells(chunkID, result) {
+  const cells = Array.isArray(result.opened_cells) && result.opened_cells.length > 0
+    ? result.opened_cells
+    : [result];
+  cells.forEach((cell) => upsertOpenedCell(chunkID, { ...cell, version: result.version }));
+}
+
+function updateChunkAfterAction(chunkID, result) {
+  const chunk = chunkDemo.chunks.find((item) => item.chunk_id === chunkID);
+  if (!chunk) return;
+  if (result.closed) {
+    chunk.closed = true;
+    chunk.state = "closed";
+  } else if ((chunk.opened_count || 0) <= 0) {
+    chunk.state = "opening";
+  }
+  if (result.version) chunk.version = result.version;
+  if (!result.mine && result.index !== undefined) {
+    chunk.opened_count = Math.max(Number(chunk.opened_count || 0), (chunkDemo.snapshots.get(chunkID)?.opened_cells || []).length);
+  }
+}
+
+async function openMapCell(hit) {
+  const blocked = canActOnHit(hit, "open");
+  if (blocked) {
+    if (blocked) showNotice(blocked, "warn");
+    return;
+  }
+  chunkDemo.actionPending = true;
+  setBadge("chunk_status", "开格中", "warn");
+  try {
+    const result = await mapActionRequest("地图开格", `/api/v1/map/chunks/${encodeURIComponent(hit.chunk.chunk_id)}/open`, { x: hit.x, y: hit.y });
+    if (!result.mine) upsertOpenedCells(hit.chunk.chunk_id, result);
+    updateChunkAfterAction(hit.chunk.chunk_id, result);
+    const openedCount = Array.isArray(result.opened_cells) ? result.opened_cells.length : 1;
+    chunkDemo.lastAction = result.mine
+      ? `触雷：${hit.chunk.chunk_id} (${hit.x},${hit.y})`
+      : `开格：${hit.chunk.chunk_id} (${hit.x},${hit.y})，邻雷 ${result.adjacent_mines || 0}，打开 ${openedCount} 格`;
+    text("chunk_last_action", chunkDemo.lastAction);
+    setBadge("chunk_status", result.mine ? "触雷封闭" : "已开格", result.mine ? "bad" : "ok");
+    addLog(result.mine ? "地图触雷" : "地图开格", chunkDemo.lastAction);
+  } catch (error) {
+    const message = String(error.message || error);
+    setBadge("chunk_status", "操作失败", "bad");
+    addLog("地图开格失败", message);
+    showNotice(message, "bad");
+  } finally {
+    chunkDemo.actionPending = false;
+    drawChunkCanvas();
+  }
+}
+
+async function toggleMapFlag(hit) {
+  const blocked = canActOnHit(hit, "flag");
+  if (blocked) {
+    if (blocked) showNotice(blocked, "warn");
+    return;
+  }
+  const nextFlagged = !hit.flagged;
+  chunkDemo.actionPending = true;
+  setBadge("chunk_status", nextFlagged ? "标记中" : "取消标记中", "warn");
+  try {
+    const result = await mapActionRequest("地图标记", `/api/v1/map/chunks/${encodeURIComponent(hit.chunk.chunk_id)}/flag`, {
+      x: hit.x,
+      y: hit.y,
+      flagged: nextFlagged,
+    });
+    setCellFlag(hit.chunk.chunk_id, hit.index, Boolean(result.flagged));
+    updateChunkAfterAction(hit.chunk.chunk_id, result);
+    chunkDemo.lastAction = `${result.flagged ? "标记" : "取消标记"}：${hit.chunk.chunk_id} (${hit.x},${hit.y})`;
+    text("chunk_last_action", chunkDemo.lastAction);
+    setBadge("chunk_status", result.flagged ? "已标记" : "已取消标记", "ok");
+    addLog("地图标记", chunkDemo.lastAction);
+  } catch (error) {
+    const message = String(error.message || error);
+    setBadge("chunk_status", "操作失败", "bad");
+    addLog("地图标记失败", message);
+    showNotice(message, "bad");
+  } finally {
+    chunkDemo.actionPending = false;
+    drawChunkCanvas();
+  }
+}
+
+function resetChunkHover() {
+  chunkDemo.hoveredChunk = null;
+  chunkDemo.hoveredCell = null;
+  updateMapHUD();
+}
+
+function updateMapHUD() {
+  const bbox = chunkDemo.lastBBox || { min_x: 0, min_y: 0, max_x: 1, max_y: 1 };
+  const canvas = $("chunk_canvas");
+  const gridSize = chunkGridSize(chunkDemo.maxLevel);
+  const cellPixels = canvas ? mapScale(canvas) / gridSize / chunkDemo.size : 0;
+  text("chunk_level", `${chunkDemo.level} / ${chunkDemo.maxLevel}`);
+  text("chunk_zoom", `${chunkDemo.zoom.toFixed(2)}x / ${cellPixels.toFixed(1)}px 每格`);
+  text("chunk_bbox", formatBBox(bbox));
+  text("chunk_count", String(chunkDemo.chunks.length));
+  text("chunk_id", chunkDemo.hoveredChunk ? chunkDemo.hoveredChunk.chunk_id : "-");
+  text("chunk_hover", "cell_x=-, cell_y=-, index=-");
+  text("chunk_last_action", chunkDemo.lastAction || "-");
+  if (chunkDemo.hoveredCell) {
+    const cell = chunkDemo.hoveredCell;
+    if (cell.x === undefined) {
+      text("chunk_cell_state", `${chunkStateText(cell.chunk.state)} (${cell.chunk.state})`);
+      return;
+    }
+    text("chunk_hover", `cell_x=${cell.x}, cell_y=${cell.y}, index=${cell.index}`);
+    if (cell.chunk.closed) {
+      text("chunk_cell_state", "Chunk 已封闭 (closed)");
+    } else if (cell.opened) {
+      text("chunk_cell_state", `已打开，邻雷 ${cell.opened.adjacent_mines || 0} (opened)`);
+    } else if (cell.flagged) {
+      text("chunk_cell_state", "已标记 (flagged)");
+    } else {
+      text("chunk_cell_state", "未探索 (hidden)");
+    }
+    return;
+  }
+  text("chunk_cell_state", chunkDemo.hoveredChunk ? `${chunkStateText(chunkDemo.hoveredChunk.state)} (${chunkDemo.hoveredChunk.state})` : "-");
+}
+
+function scheduleMapLoad() {
+  window.clearTimeout(chunkDemo.loadTimer);
+  chunkDemo.loadTimer = window.setTimeout(() => {
+    loadVisibleChunks().catch((error) => addLog("地图加载失败", String(error.message || error)));
+  }, 160);
+  drawChunkCanvas();
+}
+
+async function startMapView() {
+  resizeMapCanvas();
+  await loadVisibleChunks();
+}
+
+function zoomMapBy(factor, anchorWorld = null) {
+  const oldZoom = chunkDemo.zoom;
+  const nextZoom = Math.max(1, Math.min(chunkDemo.maxZoom, chunkDemo.zoom * factor));
+  if (nextZoom === oldZoom) return;
+  if (anchorWorld) {
+    chunkDemo.centerX = anchorWorld.x - (anchorWorld.x - chunkDemo.centerX) * (oldZoom / nextZoom);
+    chunkDemo.centerY = anchorWorld.y - (anchorWorld.y - chunkDemo.centerY) * (oldZoom / nextZoom);
+  }
+  chunkDemo.zoom = nextZoom;
+  clampMapCenter();
+  scheduleMapLoad();
+}
+
+function resetMapView() {
+  chunkDemo.zoom = 1;
+  chunkDemo.centerX = 0.5;
+  chunkDemo.centerY = 0.5;
+  scheduleMapLoad();
 }
 
 async function registerUser() {
@@ -811,12 +1463,76 @@ function bootstrap() {
   bind("ws_send_submit", sendWSMessage);
   bind("ws_disconnect_submit", disconnectWS);
   bind("ws_use_current_room", useCurrentRoomForWS);
+  bind("map_zoom_in", async () => zoomMapBy(2));
+  bind("map_zoom_out", async () => zoomMapBy(1 / 2));
+  bind("map_reset", async () => resetMapView());
 
   document.querySelectorAll("[data-mode]").forEach((button) => {
     button.addEventListener("click", () => selectMode(button.dataset.mode));
   });
   document.querySelectorAll("[data-board-mode]").forEach((button) => {
     button.addEventListener("click", () => selectBoardMode(button.dataset.boardMode));
+  });
+
+  const mapCanvas = $("chunk_canvas");
+  mapCanvas?.addEventListener("mousemove", (event) => {
+    if (chunkDemo.dragStart) {
+      const canvas = $("chunk_canvas");
+      const ratio = window.devicePixelRatio || 1;
+      const scale = mapScale(canvas);
+      const dx = event.clientX - chunkDemo.dragStart.clientX;
+      const dy = event.clientY - chunkDemo.dragStart.clientY;
+      if (Math.hypot(dx, dy) > 4) {
+        chunkDemo.dragging = true;
+        chunkDemo.dragMoved = true;
+        mapCanvas.classList.add("dragging");
+        chunkDemo.centerX = chunkDemo.dragStart.centerX - (dx * ratio) / scale;
+        chunkDemo.centerY = chunkDemo.dragStart.centerY - (dy * ratio) / scale;
+        clampMapCenter();
+        scheduleMapLoad();
+        return;
+      }
+    }
+    updateChunkHover(event);
+  });
+  mapCanvas?.addEventListener("mouseleave", resetChunkHover);
+  mapCanvas?.addEventListener("mousedown", (event) => {
+    if (event.button !== 0) return;
+    chunkDemo.dragging = false;
+    chunkDemo.dragMoved = false;
+    chunkDemo.dragStart = {
+      clientX: event.clientX,
+      clientY: event.clientY,
+      centerX: chunkDemo.centerX,
+      centerY: chunkDemo.centerY,
+    };
+  });
+  window.addEventListener("mouseup", (event) => {
+    if (!chunkDemo.dragStart) return;
+    if (!chunkDemo.dragMoved && event.button === 0) {
+      const hit = mapCellHit(event.clientX, event.clientY);
+      if (hit?.x !== undefined) {
+        openMapCell(hit);
+      }
+    }
+    chunkDemo.dragging = false;
+    chunkDemo.dragMoved = false;
+    chunkDemo.dragStart = null;
+    mapCanvas?.classList.remove("dragging");
+  });
+  mapCanvas?.addEventListener("contextmenu", (event) => {
+    const hit = mapCellHit(event.clientX, event.clientY);
+    if (!hit || hit.x === undefined) return;
+    event.preventDefault();
+    toggleMapFlag(hit);
+  });
+  mapCanvas?.addEventListener("wheel", (event) => {
+    event.preventDefault();
+    const anchor = screenToWorld(event.clientX, event.clientY);
+    zoomMapBy(event.deltaY < 0 ? 1.5 : 1 / 1.5, anchor);
+  }, { passive: false });
+  window.addEventListener("resize", () => {
+    if (location.hash === "#/map") scheduleMapLoad();
   });
 
   window.addEventListener("hashchange", () => setRoute(location.hash));

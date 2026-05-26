@@ -23,6 +23,7 @@
           <a href="#/room" data-route="#/room">我的房间</a>
           <a href="#/settlement" data-route="#/settlement">战绩结算</a>
           <a href="#/leaderboard" data-route="#/leaderboard">排行榜</a>
+          <a href="#/map" data-route="#/map">地图</a>
           <a href="#/debug" data-route="#/debug">开发调试</a>
         </nav>
 
@@ -338,6 +339,65 @@
             <input id="leaderboard_mode" type="hidden" value="1v1" />
             <div id="leaderboard_items" class="leaderboard-list"></div>
           </section>
+        </section>
+
+        <section id="view_map" class="view">
+          <div class="map-stage">
+            <canvas id="chunk_canvas" width="1280" height="820" aria-label="中国地图 Chunk 金字塔"></canvas>
+            <div class="map-hud">
+              <div class="map-hud-head">
+                <strong>中国 Chunk 地图</strong>
+                <span id="chunk_status" class="badge">未加载</span>
+              </div>
+              <div class="chunk-meta">
+                <div>
+                  <span>Level</span>
+                  <strong id="chunk_level">0 / 6</strong>
+                </div>
+                <div>
+                  <span>Zoom</span>
+                  <strong id="chunk_zoom">1.00x</strong>
+                </div>
+                <div>
+                  <span>视口 bbox</span>
+                  <strong id="chunk_bbox">-</strong>
+                </div>
+                <div>
+                  <span>可见 Chunk</span>
+                  <strong id="chunk_count">0</strong>
+                </div>
+                <div>
+                  <span>悬停 Chunk</span>
+                  <strong id="chunk_id">-</strong>
+                </div>
+                <div>
+                  <span>悬停格子</span>
+                  <strong id="chunk_hover">cell_x=-, cell_y=-, index=-</strong>
+                </div>
+                <div>
+                  <span>状态</span>
+                  <strong id="chunk_cell_state">-</strong>
+                </div>
+                <div>
+                  <span>最近操作</span>
+                  <strong id="chunk_last_action">-</strong>
+                </div>
+              </div>
+              <div class="map-tools">
+                <button id="map_zoom_in" class="ghost small" type="button">放大</button>
+                <button id="map_zoom_out" class="ghost small" type="button">缩小</button>
+                <button id="map_reset" class="ghost small" type="button">复位</button>
+              </div>
+              <div class="chunk-legend" aria-label="Chunk 状态图例">
+                <div><i class="legend-normal"></i><span>普通</span></div>
+                <div><i class="legend-opening"></i><span>探索中</span></div>
+                <div><i class="legend-hot"></i><span>活跃</span></div>
+                <div><i class="legend-closed"></i><span>封闭</span></div>
+                <div><i class="legend-opened"></i><span>已开格</span></div>
+                <div><i class="legend-flagged"></i><span>已标记</span></div>
+              </div>
+            </div>
+          </div>
         </section>
 
         <section id="view_debug" class="view">
