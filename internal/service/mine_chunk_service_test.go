@@ -142,6 +142,53 @@ func TestChunkServiceSnapshotDoesNotExposeMines(t *testing.T) {
 	}
 }
 
+func TestChunkServiceSnapshotReturnsFlaggedCells(t *testing.T) {
+	season := testServiceMineSeason()
+	store := newMemoryMineChunkStateStore()
+	svc := NewChunkServiceWithDeps(staticMineSeasonReader{season: season}, store)
+	chunkID := model.ChunkID{Region: "cn", Z: model.ChunkMaxLevel, X: 10, Y: 20}
+
+	flagResp, err := svc.FlagCell(context.Background(), 1001, chunkID.String(), &req.FlagMineCellRequest{X: 7, Y: 9, Flagged: true})
+	if err != nil {
+		t.Fatalf("FlagCell returned error: %v", err)
+	}
+	snapshot, err := svc.GetChunkSnapshot(context.Background(), chunkID.String())
+	if err != nil {
+		t.Fatalf("GetChunkSnapshot returned error: %v", err)
+	}
+	if len(snapshot.FlaggedCells) != 1 {
+		t.Fatalf("unexpected flagged cell count: %d", len(snapshot.FlaggedCells))
+	}
+	flagged := snapshot.FlaggedCells[0]
+	if flagged.X != 7 || flagged.Y != 9 || flagged.Index != flagResp.Index {
+		t.Fatalf("unexpected flagged cell: %+v", flagged)
+	}
+	if flagged.FlaggedBy.UserID != 1001 {
+		t.Fatalf("unexpected flagged_by: %+v", flagged.FlaggedBy)
+	}
+}
+
+func TestChunkServiceSnapshotOmitsCanceledFlaggedCells(t *testing.T) {
+	season := testServiceMineSeason()
+	store := newMemoryMineChunkStateStore()
+	svc := NewChunkServiceWithDeps(staticMineSeasonReader{season: season}, store)
+	chunkID := model.ChunkID{Region: "cn", Z: model.ChunkMaxLevel, X: 10, Y: 20}
+
+	if _, err := svc.FlagCell(context.Background(), 1001, chunkID.String(), &req.FlagMineCellRequest{X: 7, Y: 9, Flagged: true}); err != nil {
+		t.Fatalf("FlagCell true returned error: %v", err)
+	}
+	if _, err := svc.FlagCell(context.Background(), 1001, chunkID.String(), &req.FlagMineCellRequest{X: 7, Y: 9, Flagged: false}); err != nil {
+		t.Fatalf("FlagCell false returned error: %v", err)
+	}
+	snapshot, err := svc.GetChunkSnapshot(context.Background(), chunkID.String())
+	if err != nil {
+		t.Fatalf("GetChunkSnapshot returned error: %v", err)
+	}
+	if len(snapshot.FlaggedCells) != 0 {
+		t.Fatalf("unexpected flagged cell count: %d", len(snapshot.FlaggedCells))
+	}
+}
+
 func TestChunkServiceLeafClosedAggregate(t *testing.T) {
 	season := testServiceMineSeason()
 	store := newMemoryMineChunkStateStore()

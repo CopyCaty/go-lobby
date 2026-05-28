@@ -32,12 +32,13 @@ type ChunkListResponse struct {
 }
 
 type ChunkSnapshotResponse struct {
-	ChunkID     string               `json:"chunk_id"`
-	Width       int                  `json:"width"`
-	Height      int                  `json:"height"`
-	Closed      bool                 `json:"closed"`
-	Version     int64                `json:"version"`
-	OpenedCells []OpenedCellResponse `json:"opened_cells"`
+	ChunkID      string                `json:"chunk_id"`
+	Width        int                   `json:"width"`
+	Height       int                   `json:"height"`
+	Closed       bool                  `json:"closed"`
+	Version      int64                 `json:"version"`
+	OpenedCells  []OpenedCellResponse  `json:"opened_cells"`
+	FlaggedCells []FlaggedCellResponse `json:"flagged_cells"`
 }
 
 type OpenedCellResponse struct {
@@ -52,4 +53,15 @@ type OpenedCellResponse struct {
 type CellOpenedByResponse struct {
 	UserID   int64  `json:"user_id"`
 	Nickname string `json:"nickname"`
+}
+
+type FlaggedCellResponse struct {
+	X         int                   `json:"x"`
+	Y         int                   `json:"y"`
+	Index     int                   `json:"index"`
+	FlaggedBy CellFlaggedByResponse `json:"flagged_by"`
+}
+
+type CellFlaggedByResponse struct {
+	UserID int64 `json:"user_id"`
 }

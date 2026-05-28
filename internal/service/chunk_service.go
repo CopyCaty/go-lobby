@@ -518,6 +518,7 @@ func buildSnapshotFromState(chunkID model.ChunkID, state *model.MineChunkState) 
 	for _, cell := range state.OpenedCells {
 		snapshot.OpenedCells = append(snapshot.OpenedCells, openedCellResponse(cell))
 	}
+	snapshot.FlaggedCells = flaggedCellsResponse(state.FlaggedBy)
 	return snapshot
 }
 
@@ -540,6 +541,21 @@ func openedCellResponse(cell model.MineOpenedCellSnapshot) res.OpenedCellRespons
 		},
 		OpenedAt: cell.OpenedAt,
 	}
+}
+
+func flaggedCellsResponse(flaggedBy map[int]int64) []res.FlaggedCellResponse {
+	responses := make([]res.FlaggedCellResponse, 0, len(flaggedBy))
+	for index, userID := range flaggedBy {
+		responses = append(responses, res.FlaggedCellResponse{
+			X:     index % model.ChunkSize,
+			Y:     index / model.ChunkSize,
+			Index: index,
+			FlaggedBy: res.CellFlaggedByResponse{
+				UserID: userID,
+			},
+		})
+	}
+	return responses
 }
 
 func parseDemoChunkID(rawChunkID string) (model.ChunkID, error) {

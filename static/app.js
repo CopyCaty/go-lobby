@@ -705,6 +705,7 @@ async function loadVisibleSnapshots() {
     return mapFetchJSON(`/api/v1/map/chunks/${encodeURIComponent(chunk.chunk_id)}/snapshot`)
       .then((snapshot) => {
         chunkDemo.snapshots.set(chunk.chunk_id, snapshot);
+        syncFlagsFromSnapshot(chunk.chunk_id, snapshot);
       })
       .catch((error) => {
         addLog("Chunk 快照不可用", `${chunk.chunk_id}: ${String(error.message || error)}`);
@@ -728,6 +729,18 @@ function flaggedCellsFor(chunkID) {
   return chunkDemo.flags.get(chunkID);
 }
 
+function syncFlagsFromSnapshot(chunkID, snapshot) {
+  const flags = new Map();
+  (snapshot?.flagged_cells || []).forEach((cell) => {
+    const x = Number(cell.x);
+    const y = Number(cell.y);
+    const index = Number(cell.index ?? cellIndex(x, y));
+    if (Number.isFinite(index)) flags.set(index, true);
+  });
+  if (flags.size > 0) chunkDemo.flags.set(chunkID, flags);
+  else chunkDemo.flags.delete(chunkID);
+}
+
 function isCellFlagged(chunkID, index) {
   return Boolean(chunkDemo.flags.get(chunkID)?.get(index));
 }
@@ -737,6 +750,23 @@ function setCellFlag(chunkID, index, flagged) {
   if (flagged) flags.set(index, true);
   else flags.delete(index);
   if (flags.size === 0) chunkDemo.flags.delete(chunkID);
+
+  const snapshot = chunkDemo.snapshots.get(chunkID);
+  if (!snapshot) return;
+  if (!Array.isArray(snapshot.flagged_cells)) snapshot.flagged_cells = [];
+  const existingIndex = snapshot.flagged_cells.findIndex((cell) => Number(cell.index) === index);
+  if (flagged) {
+    const nextCell = {
+      x: index % chunkDemo.size,
+      y: Math.floor(index / chunkDemo.size),
+      index,
+      flagged_by: { user_id: appState.user?.user_id || appState.user?.id || 0 },
+    };
+    if (existingIndex >= 0) snapshot.flagged_cells[existingIndex] = nextCell;
+    else snapshot.flagged_cells.push(nextCell);
+  } else if (existingIndex >= 0) {
+    snapshot.flagged_cells.splice(existingIndex, 1);
+  }
 }
 
 function collectGeoJSONPolygons(input, polygons = []) {
@@ -1332,8 +1362,10 @@ function ensureSnapshot(chunkID) {
     closed: false,
     version: 1,
     opened_cells: [],
+    flagged_cells: [],
   };
   if (!Array.isArray(snapshot.opened_cells)) snapshot.opened_cells = [];
+  if (!Array.isArray(snapshot.flagged_cells)) snapshot.flagged_cells = [];
   chunkDemo.snapshots.set(chunkID, snapshot);
   return snapshot;
 }
@@ -1517,6 +1549,7 @@ function shouldReloadSnapshot(chunkID, nextVersion) {
 async function reloadChunkSnapshot(chunkID) {
   const snapshot = await mapFetchJSON(`/api/v1/map/chunks/${encodeURIComponent(chunkID)}/snapshot`);
   chunkDemo.snapshots.set(chunkID, snapshot);
+  syncFlagsFromSnapshot(chunkID, snapshot);
   const chunk = chunkDemo.chunks.find((item) => item.chunk_id === chunkID);
   if (chunk) {
     chunk.closed = Boolean(snapshot.closed);
