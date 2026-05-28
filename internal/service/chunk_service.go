@@ -17,6 +17,7 @@ var (
 	ErrNoActiveSeason  = errors.New("no active mine season")
 	ErrChunkClosed     = errors.New("chunk is closed")
 	ErrCellAlreadyOpen = errors.New("cell already opened")
+	ErrCellFlagged     = errors.New("cell is flagged")
 )
 
 type MineSeasonReader interface {
@@ -222,6 +223,9 @@ func (s *ChunkService) OpenCell(ctx context.Context, userID int64, rawChunkID st
 			OpenedCells:   []res.OpenedCellResponse{openedCellResponse(opened)},
 		}, nil
 	}
+	if _, ok := state.FlaggedBy[index]; ok {
+		return nil, ErrCellFlagged
+	}
 
 	now := time.Now()
 	isMine, err := s.mineGen.IsMine(season, chunkID, openReq.X, openReq.Y)
@@ -295,6 +299,9 @@ func (s *ChunkService) openZeroArea(
 			continue
 		}
 		visited[index] = true
+		if _, ok := state.FlaggedBy[index]; ok {
+			continue
+		}
 		if _, ok := state.OpenedCells[index]; ok {
 			continue
 		}

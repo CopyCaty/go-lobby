@@ -239,6 +239,13 @@ func writeChunkError(c *gin.Context, err error) {
 		})
 		return
 	}
+	if errors.Is(err, service.ErrCellFlagged) {
+		c.JSON(http.StatusConflict, gin.H{
+			"code":    409,
+			"message": "格子已标记，请先取消标记",
+		})
+		return
+	}
 	c.JSON(http.StatusInternalServerError, gin.H{
 		"code":    500,
 		"message": err.Error(),

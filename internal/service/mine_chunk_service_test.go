@@ -123,6 +123,71 @@ func TestChunkServiceOpenZeroCellCascades(t *testing.T) {
 	}
 }
 
+func TestChunkServiceOpenFlaggedCellReturnsError(t *testing.T) {
+	season := testServiceMineSeason()
+	store := newMemoryMineChunkStateStore()
+	svc := NewChunkServiceWithDeps(staticMineSeasonReader{season: season}, store)
+	chunkID := model.ChunkID{Region: "cn", Z: model.ChunkMaxLevel, X: 10, Y: 20}
+	x, y := findNumberCell(t, season, chunkID, nil)
+
+	flagResp, err := svc.FlagCell(context.Background(), 1001, chunkID.String(), &req.FlagMineCellRequest{X: x, Y: y, Flagged: true})
+	if err != nil {
+		t.Fatalf("FlagCell returned error: %v", err)
+	}
+	if _, err := svc.OpenCell(context.Background(), 1002, chunkID.String(), &req.OpenMineCellRequest{X: x, Y: y}); !errors.Is(err, ErrCellFlagged) {
+		t.Fatalf("expected ErrCellFlagged, got %v", err)
+	}
+
+	state, err := store.GetState(context.Background(), season.ID, chunkID.String())
+	if err != nil {
+		t.Fatalf("GetState returned error: %v", err)
+	}
+	if state.Version != flagResp.Version {
+		t.Fatalf("flagged open should not increment version: flag=%d state=%d", flagResp.Version, state.Version)
+	}
+	if _, ok := state.FlaggedBy[flagResp.Index]; !ok {
+		t.Fatalf("flagged open should keep flag at index %d", flagResp.Index)
+	}
+	if _, ok := state.OpenedCells[flagResp.Index]; ok {
+		t.Fatalf("flagged open should not open index %d", flagResp.Index)
+	}
+}
+
+func TestChunkServiceOpenZeroAreaSkipsFlaggedCells(t *testing.T) {
+	season := testServiceMineSeason()
+	store := newMemoryMineChunkStateStore()
+	svc := NewChunkServiceWithDeps(staticMineSeasonReader{season: season}, store)
+	chunkID := model.ChunkID{Region: "cn", Z: model.ChunkMaxLevel, X: 10, Y: 20}
+	startX, startY := findZeroAdjacentCell(t, season, chunkID)
+	flagX, flagY := findZeroCascadeCell(t, season, chunkID, startX, startY)
+	flagIndex, err := model.ChunkCellIndex(flagX, flagY)
+	if err != nil {
+		t.Fatalf("ChunkCellIndex returned error: %v", err)
+	}
+
+	if _, err := svc.FlagCell(context.Background(), 1001, chunkID.String(), &req.FlagMineCellRequest{X: flagX, Y: flagY, Flagged: true}); err != nil {
+		t.Fatalf("FlagCell returned error: %v", err)
+	}
+	resp, err := svc.OpenCell(context.Background(), 1002, chunkID.String(), &req.OpenMineCellRequest{X: startX, Y: startY})
+	if err != nil {
+		t.Fatalf("OpenCell returned error: %v", err)
+	}
+	if resp.Mine || resp.AdjacentMines != 0 {
+		t.Fatalf("expected zero safe cell, got %+v", resp)
+	}
+
+	state, err := store.GetState(context.Background(), season.ID, chunkID.String())
+	if err != nil {
+		t.Fatalf("GetState returned error: %v", err)
+	}
+	if _, ok := state.FlaggedBy[flagIndex]; !ok {
+		t.Fatalf("zero area open should keep flag at index %d", flagIndex)
+	}
+	if _, ok := state.OpenedCells[flagIndex]; ok {
+		t.Fatalf("zero area open should not open flagged index %d", flagIndex)
+	}
+}
+
 func TestChunkServiceSnapshotDoesNotExposeMines(t *testing.T) {
 	season := testServiceMineSeason()
 	store := newMemoryMineChunkStateStore()
@@ -370,5 +435,61 @@ func findZeroAdjacentCell(t *testing.T, season *model.MineSeason, chunkID model.
 		}
 	}
 	t.Fatal("could not find zero adjacent cell")
+	return 0, 0
+}
+
+func findZeroCascadeCell(t *testing.T, season *model.MineSeason, chunkID model.ChunkID, startX int, startY int) (int, int) {
+	t.Helper()
+	type cell struct {
+		x int
+		y int
+	}
+	gen := model.NewMineGenerator()
+	queue := []cell{{x: startX, y: startY}}
+	visited := make(map[int]bool)
+
+	for len(queue) > 0 {
+		current := queue[0]
+		queue = queue[1:]
+		if current.x < 0 || current.x >= model.ChunkSize || current.y < 0 || current.y >= model.ChunkSize {
+			continue
+		}
+		index, err := model.ChunkCellIndex(current.x, current.y)
+		if err != nil {
+			t.Fatalf("ChunkCellIndex returned error: %v", err)
+		}
+		if visited[index] {
+			continue
+		}
+		visited[index] = true
+
+		isMine, err := gen.IsMine(season, chunkID, current.x, current.y)
+		if err != nil {
+			t.Fatalf("IsMine returned error: %v", err)
+		}
+		if isMine {
+			continue
+		}
+		if current.x != startX || current.y != startY {
+			return current.x, current.y
+		}
+
+		adjacentMines, err := gen.AdjacentMineCount(season, chunkID, current.x, current.y)
+		if err != nil {
+			t.Fatalf("AdjacentMineCount returned error: %v", err)
+		}
+		if adjacentMines != 0 {
+			continue
+		}
+		for dy := -1; dy <= 1; dy++ {
+			for dx := -1; dx <= 1; dx++ {
+				if dx == 0 && dy == 0 {
+					continue
+				}
+				queue = append(queue, cell{x: current.x + dx, y: current.y + dy})
+			}
+		}
+	}
+	t.Fatal("could not find cell in zero cascade")
 	return 0, 0
 }
