@@ -1,6 +1,7 @@
 const $ = (id) => document.getElementById(id);
 
 const storageKey = "go_lobby_token";
+const flowerTTLMS = 3000;
 
 const routeMeta = {
   "#/login": {
@@ -59,6 +60,7 @@ const chunkDemo = {
   snapshots: new Map(),
   pendingSnapshots: new Set(),
   flags: new Map(),
+  flowers: new Map(),
   hoveredChunk: null,
   hoveredCell: null,
   dragging: false,
@@ -694,6 +696,9 @@ function pruneInvisibleFlags() {
   [...chunkDemo.flags.keys()].forEach((chunkID) => {
     if (!visibleIDs.has(chunkID)) chunkDemo.flags.delete(chunkID);
   });
+  [...chunkDemo.flowers.keys()].forEach((chunkID) => {
+    if (!visibleIDs.has(chunkID)) chunkDemo.flowers.delete(chunkID);
+  });
 }
 
 async function loadVisibleSnapshots() {
@@ -750,6 +755,7 @@ function setCellFlag(chunkID, index, flagged) {
   if (flagged) flags.set(index, true);
   else flags.delete(index);
   if (flags.size === 0) chunkDemo.flags.delete(chunkID);
+  clearTemporaryFlower(chunkID, index);
 
   const snapshot = chunkDemo.snapshots.get(chunkID);
   if (!snapshot) return;
@@ -767,6 +773,43 @@ function setCellFlag(chunkID, index, flagged) {
   } else if (existingIndex >= 0) {
     snapshot.flagged_cells.splice(existingIndex, 1);
   }
+}
+
+function temporaryFlowersFor(chunkID) {
+  if (!chunkDemo.flowers.has(chunkID)) {
+    chunkDemo.flowers.set(chunkID, new Map());
+  }
+  return chunkDemo.flowers.get(chunkID);
+}
+
+function recordTemporaryFlower(chunkID, index) {
+  const flowers = temporaryFlowersFor(chunkID);
+  flowers.set(index, Date.now() + flowerTTLMS);
+  window.setTimeout(() => {
+    if (removeExpiredFlowers()) drawChunkCanvas();
+  }, flowerTTLMS + 50);
+}
+
+function clearTemporaryFlower(chunkID, index) {
+  const flowers = chunkDemo.flowers.get(chunkID);
+  if (!flowers) return;
+  flowers.delete(index);
+  if (flowers.size === 0) chunkDemo.flowers.delete(chunkID);
+}
+
+function removeExpiredFlowers() {
+  const now = Date.now();
+  let changed = false;
+  chunkDemo.flowers.forEach((flowers, chunkID) => {
+    flowers.forEach((expiresAt, index) => {
+      if (expiresAt <= now) {
+        flowers.delete(index);
+        changed = true;
+      }
+    });
+    if (flowers.size === 0) chunkDemo.flowers.delete(chunkID);
+  });
+  return changed;
 }
 
 function collectGeoJSONPolygons(input, polygons = []) {
@@ -1237,6 +1280,16 @@ function drawSnapshotCells(ctx, canvas, chunk) {
     });
   }
 
+  removeExpiredFlowers();
+  const flowers = chunkDemo.flowers.get(chunk.chunk_id);
+  if (flowers && flowers.size > 0) {
+    flowers.forEach((_, index) => {
+      const x = index % chunkDemo.size;
+      const y = Math.floor(index / chunkDemo.size);
+      drawTemporaryFlower(ctx, start.x + x * cellW, start.y + y * cellH, cellW, cellH);
+    });
+  }
+
   if (cellW >= 12) {
     ctx.textAlign = "center";
     ctx.textBaseline = "middle";
@@ -1282,6 +1335,26 @@ function drawSnapshotCells(ctx, canvas, chunk) {
       ctx.stroke();
     }
   }
+}
+
+function drawTemporaryFlower(ctx, left, top, cellW, cellH) {
+  const cx = left + cellW * 0.5;
+  const cy = top + cellH * 0.5;
+  const radius = Math.max(2.5, Math.min(9, Math.min(cellW, cellH) * 0.24));
+  const petalRadius = radius * 0.62;
+  ctx.save();
+  ctx.fillStyle = "rgba(252, 231, 243, 0.95)";
+  for (let i = 0; i < 5; i += 1) {
+    const angle = -Math.PI / 2 + (i * Math.PI * 2) / 5;
+    ctx.beginPath();
+    ctx.arc(cx + Math.cos(angle) * radius, cy + Math.sin(angle) * radius, petalRadius, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  ctx.fillStyle = "rgba(250, 204, 21, 0.95)";
+  ctx.beginPath();
+  ctx.arc(cx, cy, Math.max(1.5, radius * 0.42), 0, Math.PI * 2);
+  ctx.fill();
+  ctx.restore();
 }
 
 function drawChunkCanvas() {
@@ -1387,6 +1460,7 @@ function upsertOpenedCell(chunkID, result) {
   if (existingIndex >= 0) snapshot.opened_cells[existingIndex] = nextCell;
   else snapshot.opened_cells.push(nextCell);
   snapshot.version = result.version || snapshot.version;
+  clearTemporaryFlower(chunkID, index);
   setCellFlag(chunkID, index, false);
 }
 
@@ -1570,6 +1644,15 @@ async function openMapCell(hit) {
   setBadge("chunk_status", "开格中", "warn");
   try {
     const result = await mapActionRequest("地图开格", `/api/v1/map/chunks/${encodeURIComponent(hit.chunk.chunk_id)}/open`, { x: hit.x, y: hit.y });
+    if (result.canceled) {
+      recordTemporaryFlower(hit.chunk.chunk_id, hit.index);
+      chunkDemo.lastAction = `首次开雷保护：${hit.chunk.chunk_id} (${hit.x},${hit.y})`;
+      text("chunk_last_action", chunkDemo.lastAction);
+      setBadge("chunk_status", "首次保护", "warn");
+      addLog("首次开雷保护", chunkDemo.lastAction);
+      showNotice("第一次点到雷已取消，已临时标记小花", "warn");
+      return;
+    }
     if (!result.mine) upsertOpenedCells(hit.chunk.chunk_id, result);
     updateChunkAfterAction(hit.chunk.chunk_id, result);
     const openedCount = Array.isArray(result.opened_cells) ? result.opened_cells.length : 1;

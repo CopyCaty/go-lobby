@@ -179,6 +179,9 @@ func (h *ChunkHandler) broadcastOpenCell(result *res.OpenMineCellResponse) {
 	if h.mapHub == nil || result == nil {
 		return
 	}
+	if result.Canceled {
+		return
+	}
 	eventType := "mine.cell_opened"
 	if result.Closed {
 		eventType = "mine.chunk_closed"

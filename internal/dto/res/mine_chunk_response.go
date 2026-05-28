@@ -9,6 +9,8 @@ type OpenMineCellResponse struct {
 	Index         int                  `json:"index"`
 	Mine          bool                 `json:"mine"`
 	Closed        bool                 `json:"closed"`
+	Canceled      bool                 `json:"canceled"`
+	Reason        string               `json:"reason,omitempty"`
 	AdjacentMines int                  `json:"adjacent_mines"`
 	Version       int64                `json:"version"`
 	OpenedAt      time.Time            `json:"opened_at"`

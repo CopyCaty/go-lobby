@@ -234,6 +234,20 @@ func (s *ChunkService) OpenCell(ctx context.Context, userID int64, rawChunkID st
 	}
 	adjacentMines := 0
 	if isMine {
+		if !playerHasOpenedCell(state, userID) {
+			return &res.OpenMineCellResponse{
+				ChunkID:  chunkID.String(),
+				X:        openReq.X,
+				Y:        openReq.Y,
+				Index:    index,
+				Mine:     true,
+				Closed:   false,
+				Canceled: true,
+				Reason:   "first_open_mine_protected",
+				Version:  state.Version,
+				OpenedAt: now,
+			}, nil
+		}
 		state.Closed = true
 		state.ClosedBy = userID
 		state.ClosedAt = &now
@@ -267,6 +281,18 @@ func (s *ChunkService) OpenCell(ctx context.Context, userID int64, rawChunkID st
 		OpenedAt:      now,
 		OpenedCells:   openedCellsResponse(state.OpenedCells),
 	}, nil
+}
+
+func playerHasOpenedCell(state *model.MineChunkState, userID int64) bool {
+	if state == nil {
+		return false
+	}
+	for _, cell := range state.OpenedCells {
+		if cell.OpenedBy == userID {
+			return true
+		}
+	}
+	return false
 }
 
 func (s *ChunkService) openZeroArea(

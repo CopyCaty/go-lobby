@@ -31,7 +31,7 @@ func TestChunkServiceOpenCellWritesOpenedState(t *testing.T) {
 	}
 }
 
-func TestChunkServiceOpenMineClosesChunk(t *testing.T) {
+func TestChunkServiceFirstMineOpenIsCanceled(t *testing.T) {
 	season := testServiceMineSeason()
 	store := newMemoryMineChunkStateStore()
 	svc := NewChunkServiceWithDeps(staticMineSeasonReader{season: season}, store)
@@ -42,8 +42,38 @@ func TestChunkServiceOpenMineClosesChunk(t *testing.T) {
 	if err != nil {
 		t.Fatalf("OpenCell returned error: %v", err)
 	}
-	if !resp.Mine || !resp.Closed {
-		t.Fatalf("mine cell should close chunk: %+v", resp)
+	if !resp.Mine || resp.Closed || !resp.Canceled {
+		t.Fatalf("first mine open should be canceled without closing chunk: %+v", resp)
+	}
+	if resp.Version != 1 {
+		t.Fatalf("canceled open should keep initial version, got %d", resp.Version)
+	}
+	state, err := store.GetState(context.Background(), season.ID, chunkID.String())
+	if err != nil {
+		t.Fatalf("GetState returned error: %v", err)
+	}
+	if state != nil {
+		t.Fatalf("canceled first mine open should not save chunk state: %+v", state)
+	}
+}
+
+func TestChunkServiceOpenMineClosesChunkAfterPlayerOpenedSafeCell(t *testing.T) {
+	season := testServiceMineSeason()
+	store := newMemoryMineChunkStateStore()
+	svc := NewChunkServiceWithDeps(staticMineSeasonReader{season: season}, store)
+	chunkID := model.ChunkID{Region: "cn", Z: model.ChunkMaxLevel, X: 10, Y: 20}
+	safeX, safeY := findMineCell(t, season, chunkID, false)
+	mineX, mineY := findMineCell(t, season, chunkID, true)
+
+	if _, err := svc.OpenCell(context.Background(), 1001, chunkID.String(), &req.OpenMineCellRequest{X: safeX, Y: safeY}); err != nil {
+		t.Fatalf("OpenCell safe returned error: %v", err)
+	}
+	resp, err := svc.OpenCell(context.Background(), 1001, chunkID.String(), &req.OpenMineCellRequest{X: mineX, Y: mineY})
+	if err != nil {
+		t.Fatalf("OpenCell mine returned error: %v", err)
+	}
+	if !resp.Mine || !resp.Closed || resp.Canceled {
+		t.Fatalf("mine open after safe cell should close chunk: %+v", resp)
 	}
 	if _, err := svc.OpenCell(context.Background(), 1001, chunkID.String(), &req.OpenMineCellRequest{X: 0, Y: 0}); !errors.Is(err, ErrChunkClosed) {
 		t.Fatalf("expected ErrChunkClosed, got %v", err)
