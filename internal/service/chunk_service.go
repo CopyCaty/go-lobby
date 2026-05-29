@@ -21,6 +21,8 @@ var (
 )
 
 const defaultChunkClosureDuration = 5 * time.Minute
+const defaultChunkWorkerIdleTimeout = 5 * time.Minute
+const defaultChunkWorkerQueueSize = 256
 
 type MineSeasonReader interface {
 	GetActiveSeason(ctx context.Context) (*model.MineSeason, error)
@@ -33,26 +35,64 @@ type MineChunkStateStore interface {
 }
 
 type ChunkService struct {
-	seasonReader    MineSeasonReader
-	stateStore      MineChunkStateStore
-	mineGen         *model.MineGenerator
-	closureDuration time.Duration
-	chunkLocks      sync.Map
+	seasonReader      MineSeasonReader
+	stateStore        MineChunkStateStore
+	mineGen           *model.MineGenerator
+	closureDuration   time.Duration
+	workersMu         sync.Mutex
+	workers           map[string]*chunkWorker
+	workerIdleTimeout time.Duration
+	workerQueueSize   int
+}
+
+type chunkOperationKind string
+
+const (
+	chunkOperationOpen chunkOperationKind = "open"
+	chunkOperationFlag chunkOperationKind = "flag"
+)
+
+type chunkOperation struct {
+	kind    chunkOperationKind
+	ctx     context.Context
+	userID  int64
+	chunkID model.ChunkID
+	openReq *req.OpenMineCellRequest
+	flagReq *req.FlagMineCellRequest
+	result  chan chunkOperationResult
+}
+
+type chunkOperationResult struct {
+	openResp *res.OpenMineCellResponse
+	flagResp *res.FlagMineCellResponse
+	err      error
+}
+
+type chunkWorker struct {
+	chunkID       string
+	ops           chan chunkOperation
+	activeSenders int
 }
 
 func NewChunkService() *ChunkService {
 	return &ChunkService{
-		mineGen:         model.NewMineGenerator(),
-		closureDuration: defaultChunkClosureDuration,
+		mineGen:           model.NewMineGenerator(),
+		closureDuration:   defaultChunkClosureDuration,
+		workers:           make(map[string]*chunkWorker),
+		workerIdleTimeout: defaultChunkWorkerIdleTimeout,
+		workerQueueSize:   defaultChunkWorkerQueueSize,
 	}
 }
 
 func NewChunkServiceWithDeps(seasonReader MineSeasonReader, stateStore MineChunkStateStore, closureDurations ...time.Duration) *ChunkService {
 	return &ChunkService{
-		seasonReader:    seasonReader,
-		stateStore:      stateStore,
-		mineGen:         model.NewMineGenerator(),
-		closureDuration: resolveChunkClosureDuration(closureDurations...),
+		seasonReader:      seasonReader,
+		stateStore:        stateStore,
+		mineGen:           model.NewMineGenerator(),
+		closureDuration:   resolveChunkClosureDuration(closureDurations...),
+		workers:           make(map[string]*chunkWorker),
+		workerIdleTimeout: defaultChunkWorkerIdleTimeout,
+		workerQueueSize:   defaultChunkWorkerQueueSize,
 	}
 }
 
@@ -224,8 +264,20 @@ func (s *ChunkService) OpenCell(ctx context.Context, userID int64, rawChunkID st
 	if err != nil {
 		return nil, err
 	}
-	unlock := s.lockChunk(chunkID.String())
-	defer unlock()
+	result, err := s.enqueueChunkOperation(ctx, chunkOperation{
+		kind:    chunkOperationOpen,
+		ctx:     ctx,
+		userID:  userID,
+		chunkID: chunkID,
+		openReq: openReq,
+	})
+	if err != nil {
+		return nil, err
+	}
+	return result.openResp, result.err
+}
+
+func (s *ChunkService) openCellInWorker(ctx context.Context, userID int64, chunkID model.ChunkID, openReq *req.OpenMineCellRequest) (*res.OpenMineCellResponse, error) {
 	index, err := model.ChunkCellIndex(openReq.X, openReq.Y)
 	if err != nil {
 		return nil, ErrInvalidChunkID
@@ -417,8 +469,20 @@ func (s *ChunkService) FlagCell(ctx context.Context, userID int64, rawChunkID st
 	if err != nil {
 		return nil, err
 	}
-	unlock := s.lockChunk(chunkID.String())
-	defer unlock()
+	result, err := s.enqueueChunkOperation(ctx, chunkOperation{
+		kind:    chunkOperationFlag,
+		ctx:     ctx,
+		userID:  userID,
+		chunkID: chunkID,
+		flagReq: flagReq,
+	})
+	if err != nil {
+		return nil, err
+	}
+	return result.flagResp, result.err
+}
+
+func (s *ChunkService) flagCellInWorker(ctx context.Context, userID int64, chunkID model.ChunkID, flagReq *req.FlagMineCellRequest) (*res.FlagMineCellResponse, error) {
 	index, err := model.ChunkCellIndex(flagReq.X, flagReq.Y)
 	if err != nil {
 		return nil, ErrInvalidChunkID
@@ -463,11 +527,123 @@ func (s *ChunkService) hasMineDeps() bool {
 	return s.seasonReader != nil && s.stateStore != nil && s.mineGen != nil
 }
 
-func (s *ChunkService) lockChunk(chunkID string) func() {
-	lockValue, _ := s.chunkLocks.LoadOrStore(chunkID, &sync.Mutex{})
-	mu := lockValue.(*sync.Mutex)
-	mu.Lock()
-	return mu.Unlock
+func (s *ChunkService) enqueueChunkOperation(ctx context.Context, op chunkOperation) (chunkOperationResult, error) {
+	if err := ctx.Err(); err != nil {
+		return chunkOperationResult{}, err
+	}
+	op.result = make(chan chunkOperationResult, 1)
+	worker := s.acquireChunkWorker(op.chunkID.String())
+	defer s.releaseChunkWorker(worker)
+
+	select {
+	case worker.ops <- op:
+	case <-ctx.Done():
+		return chunkOperationResult{}, ctx.Err()
+	}
+
+	select {
+	case result := <-op.result:
+		return result, nil
+	case <-ctx.Done():
+		return chunkOperationResult{}, ctx.Err()
+	}
+}
+
+func (s *ChunkService) acquireChunkWorker(chunkID string) *chunkWorker {
+	s.workersMu.Lock()
+	defer s.workersMu.Unlock()
+	if s.workers == nil {
+		s.workers = make(map[string]*chunkWorker)
+	}
+	if worker := s.workers[chunkID]; worker != nil {
+		worker.activeSenders++
+		return worker
+	}
+	queueSize := s.workerQueueSize
+	if queueSize <= 0 {
+		queueSize = defaultChunkWorkerQueueSize
+	}
+	worker := &chunkWorker{
+		chunkID: chunkID,
+		ops:     make(chan chunkOperation, queueSize),
+	}
+	worker.activeSenders = 1
+	s.workers[chunkID] = worker
+	go s.runChunkWorker(worker)
+	return worker
+}
+
+func (s *ChunkService) releaseChunkWorker(worker *chunkWorker) {
+	s.workersMu.Lock()
+	defer s.workersMu.Unlock()
+	if worker.activeSenders > 0 {
+		worker.activeSenders--
+	}
+}
+
+func (s *ChunkService) runChunkWorker(worker *chunkWorker) {
+	idleTimeout := s.workerIdleTimeout
+	if idleTimeout <= 0 {
+		idleTimeout = defaultChunkWorkerIdleTimeout
+	}
+	idleTimer := time.NewTimer(idleTimeout)
+	defer idleTimer.Stop()
+
+	for {
+		select {
+		case op := <-worker.ops:
+			if !idleTimer.Stop() {
+				select {
+				case <-idleTimer.C:
+				default:
+				}
+			}
+			s.handleChunkOperation(op)
+			idleTimer.Reset(idleTimeout)
+		case <-idleTimer.C:
+			if s.removeIdleChunkWorker(worker) {
+				return
+			}
+			idleTimer.Reset(idleTimeout)
+		}
+	}
+}
+
+func (s *ChunkService) handleChunkOperation(op chunkOperation) {
+	if err := op.ctx.Err(); err != nil {
+		op.result <- chunkOperationResult{err: err}
+		return
+	}
+
+	var result chunkOperationResult
+	switch op.kind {
+	case chunkOperationOpen:
+		result.openResp, result.err = s.openCellInWorker(op.ctx, op.userID, op.chunkID, op.openReq)
+	case chunkOperationFlag:
+		result.flagResp, result.err = s.flagCellInWorker(op.ctx, op.userID, op.chunkID, op.flagReq)
+	default:
+		result.err = errors.New("unknown chunk operation")
+	}
+	op.result <- result
+}
+
+func (s *ChunkService) removeIdleChunkWorker(worker *chunkWorker) bool {
+	s.workersMu.Lock()
+	defer s.workersMu.Unlock()
+	if s.workers[worker.chunkID] != worker {
+		return true
+	}
+	if worker.activeSenders > 0 || len(worker.ops) > 0 {
+		return false
+	}
+	delete(s.workers, worker.chunkID)
+	return true
+}
+
+func (s *ChunkService) chunkWorkerCount() int {
+	s.workersMu.Lock()
+	defer s.workersMu.Unlock()
+	return len(s.workers)
 }
 
 func (s *ChunkService) activeSeason(ctx context.Context) (*model.MineSeason, error) {

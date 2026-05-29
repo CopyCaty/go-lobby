@@ -3,10 +3,12 @@ package service
 import (
 	"context"
 	"errors"
-	"go-lobby/internal/dto/req"
-	"go-lobby/internal/model"
+	"sync"
 	"testing"
 	"time"
+
+	"go-lobby/internal/dto/req"
+	"go-lobby/internal/model"
 )
 
 func TestChunkServiceOpenCellWritesOpenedState(t *testing.T) {
@@ -430,6 +432,181 @@ func TestChunkServiceParentClosedLeafAggregate(t *testing.T) {
 	}
 }
 
+func TestChunkServiceConcurrentOpenSameChunkSerializesState(t *testing.T) {
+	season := testServiceMineSeason()
+	store := newMemoryMineChunkStateStore()
+	svc := NewChunkServiceWithDeps(staticMineSeasonReader{season: season}, store)
+	chunkID := model.ChunkID{Region: "cn", Z: model.ChunkMaxLevel, X: 10, Y: 20}
+	cellCount := 8
+	cells := make([][2]int, 0, cellCount)
+	excluded := make(map[int]bool)
+	for len(cells) < cellCount {
+		x, y := findNumberCell(t, season, chunkID, excluded)
+		index, err := model.ChunkCellIndex(x, y)
+		if err != nil {
+			t.Fatalf("ChunkCellIndex returned error: %v", err)
+		}
+		excluded[index] = true
+		cells = append(cells, [2]int{x, y})
+	}
+
+	var wg sync.WaitGroup
+	errs := make(chan error, cellCount)
+	for i, cell := range cells {
+		wg.Add(1)
+		go func(userID int64, x int, y int) {
+			defer wg.Done()
+			_, err := svc.OpenCell(context.Background(), userID, chunkID.String(), &req.OpenMineCellRequest{X: x, Y: y})
+			errs <- err
+		}(int64(1000+i), cell[0], cell[1])
+	}
+	wg.Wait()
+	close(errs)
+	for err := range errs {
+		if err != nil {
+			t.Fatalf("OpenCell returned error: %v", err)
+		}
+	}
+
+	state, err := store.GetState(context.Background(), season.ID, chunkID.String())
+	if err != nil {
+		t.Fatalf("GetState returned error: %v", err)
+	}
+	if len(state.OpenedCells) != cellCount {
+		t.Fatalf("unexpected opened cell count: got %d want %d", len(state.OpenedCells), cellCount)
+	}
+	if state.Version != int64(cellCount+1) {
+		t.Fatalf("unexpected version: got %d want %d", state.Version, cellCount+1)
+	}
+}
+
+func TestChunkServiceConcurrentOpenSameCellIsIdempotent(t *testing.T) {
+	season := testServiceMineSeason()
+	store := newMemoryMineChunkStateStore()
+	svc := NewChunkServiceWithDeps(staticMineSeasonReader{season: season}, store)
+	chunkID := model.ChunkID{Region: "cn", Z: model.ChunkMaxLevel, X: 10, Y: 20}
+	x, y := findNumberCell(t, season, chunkID, nil)
+	requestCount := 12
+
+	var wg sync.WaitGroup
+	errs := make(chan error, requestCount)
+	for i := 0; i < requestCount; i++ {
+		wg.Add(1)
+		go func(userID int64) {
+			defer wg.Done()
+			_, err := svc.OpenCell(context.Background(), userID, chunkID.String(), &req.OpenMineCellRequest{X: x, Y: y})
+			errs <- err
+		}(int64(1000 + i))
+	}
+	wg.Wait()
+	close(errs)
+	for err := range errs {
+		if err != nil {
+			t.Fatalf("OpenCell returned error: %v", err)
+		}
+	}
+
+	state, err := store.GetState(context.Background(), season.ID, chunkID.String())
+	if err != nil {
+		t.Fatalf("GetState returned error: %v", err)
+	}
+	if len(state.OpenedCells) != 1 {
+		t.Fatalf("same cell should only be opened once, got %d", len(state.OpenedCells))
+	}
+	if state.Version != 2 {
+		t.Fatalf("same cell repeated open should only increment once, got version %d", state.Version)
+	}
+}
+
+func TestChunkServiceConcurrentOpenDifferentChunks(t *testing.T) {
+	season := testServiceMineSeason()
+	store := newMemoryMineChunkStateStore()
+	svc := NewChunkServiceWithDeps(staticMineSeasonReader{season: season}, store)
+	chunks := []model.ChunkID{
+		{Region: "cn", Z: model.ChunkMaxLevel, X: 10, Y: 20},
+		{Region: "cn", Z: model.ChunkMaxLevel, X: 11, Y: 20},
+	}
+
+	var wg sync.WaitGroup
+	errs := make(chan error, len(chunks))
+	for i, chunkID := range chunks {
+		x, y := findNumberCell(t, season, chunkID, nil)
+		wg.Add(1)
+		go func(userID int64, chunkID model.ChunkID, x int, y int) {
+			defer wg.Done()
+			_, err := svc.OpenCell(context.Background(), userID, chunkID.String(), &req.OpenMineCellRequest{X: x, Y: y})
+			errs <- err
+		}(int64(1000+i), chunkID, x, y)
+	}
+	wg.Wait()
+	close(errs)
+	for err := range errs {
+		if err != nil {
+			t.Fatalf("OpenCell returned error: %v", err)
+		}
+	}
+
+	for _, chunkID := range chunks {
+		state, err := store.GetState(context.Background(), season.ID, chunkID.String())
+		if err != nil {
+			t.Fatalf("GetState returned error: %v", err)
+		}
+		if state == nil || len(state.OpenedCells) != 1 || state.Version != 2 {
+			t.Fatalf("unexpected state for chunk %s: %+v", chunkID.String(), state)
+		}
+	}
+}
+
+func TestChunkServiceCanceledContextDoesNotCreateWorkerOrState(t *testing.T) {
+	season := testServiceMineSeason()
+	store := newMemoryMineChunkStateStore()
+	svc := NewChunkServiceWithDeps(staticMineSeasonReader{season: season}, store)
+	chunkID := model.ChunkID{Region: "cn", Z: model.ChunkMaxLevel, X: 10, Y: 20}
+	x, y := findNumberCell(t, season, chunkID, nil)
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	_, err := svc.OpenCell(ctx, 1001, chunkID.String(), &req.OpenMineCellRequest{X: x, Y: y})
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("expected context.Canceled, got %v", err)
+	}
+	state, err := store.GetState(context.Background(), season.ID, chunkID.String())
+	if err != nil {
+		t.Fatalf("GetState returned error: %v", err)
+	}
+	if state != nil {
+		t.Fatalf("canceled request should not create state: %+v", state)
+	}
+	if got := svc.chunkWorkerCount(); got != 0 {
+		t.Fatalf("canceled request should not create worker, got %d", got)
+	}
+}
+
+func TestChunkServiceWorkerExitsAfterIdleTimeout(t *testing.T) {
+	season := testServiceMineSeason()
+	store := newMemoryMineChunkStateStore()
+	svc := NewChunkServiceWithDeps(staticMineSeasonReader{season: season}, store)
+	svc.workerIdleTimeout = 10 * time.Millisecond
+	chunkID := model.ChunkID{Region: "cn", Z: model.ChunkMaxLevel, X: 10, Y: 20}
+	x, y := findNumberCell(t, season, chunkID, nil)
+
+	if _, err := svc.OpenCell(context.Background(), 1001, chunkID.String(), &req.OpenMineCellRequest{X: x, Y: y}); err != nil {
+		t.Fatalf("OpenCell returned error: %v", err)
+	}
+	if got := svc.chunkWorkerCount(); got != 1 {
+		t.Fatalf("expected one worker after open, got %d", got)
+	}
+
+	deadline := time.Now().Add(time.Second)
+	for time.Now().Before(deadline) {
+		if svc.chunkWorkerCount() == 0 {
+			return
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	t.Fatalf("worker did not exit after idle timeout, workers=%d", svc.chunkWorkerCount())
+}
+
 type staticMineSeasonReader struct {
 	season *model.MineSeason
 }
@@ -439,6 +616,7 @@ func (r staticMineSeasonReader) GetActiveSeason(ctx context.Context) (*model.Min
 }
 
 type memoryMineChunkStateStore struct {
+	mu    sync.Mutex
 	items map[string]*model.MineChunkState
 }
 
@@ -447,15 +625,21 @@ func newMemoryMineChunkStateStore() *memoryMineChunkStateStore {
 }
 
 func (s *memoryMineChunkStateStore) GetState(ctx context.Context, seasonID int64, chunkID string) (*model.MineChunkState, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	return s.items[chunkID], nil
 }
 
 func (s *memoryMineChunkStateStore) SaveState(ctx context.Context, state *model.MineChunkState) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	s.items[state.ChunkID] = state
 	return nil
 }
 
 func (s *memoryMineChunkStateStore) ListClosedLeafChunkIDs(ctx context.Context, seasonID int64) (map[string]bool, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	closed := make(map[string]bool)
 	for chunkID, state := range s.items {
 		if state.SeasonID == seasonID && state.Closed {
