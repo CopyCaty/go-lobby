@@ -1,10 +1,14 @@
 package config
 
 import (
+	"fmt"
 	"os"
+	"time"
 
 	"github.com/goccy/go-yaml"
 )
+
+const DefaultMineChunkClosureDuration = 5 * time.Minute
 
 type Config struct {
 	Server   ServerConfig   `yaml:"server"`
@@ -12,6 +16,7 @@ type Config struct {
 	JWT      JWTConfig      `yaml:"jwt"`
 	Redis    RedisConfig    `yaml:"redis"`
 	RabbitMQ RabbitMQConfig `yaml:"rabbitmq"`
+	Mine     MineConfig     `yaml:"mine"`
 }
 
 type ServerConfig struct {
@@ -40,6 +45,18 @@ type RabbitMQConfig struct {
 	MatchResultQueue string `yaml:"match_result_queue"`
 }
 
+type MineConfig struct {
+	ChunkClosureDuration string        `yaml:"chunk_closure_duration"`
+	chunkClosureDuration time.Duration `yaml:"-"`
+}
+
+func (c MineConfig) ChunkClosureDurationValue() time.Duration {
+	if c.chunkClosureDuration > 0 {
+		return c.chunkClosureDuration
+	}
+	return DefaultMineChunkClosureDuration
+}
+
 func Load(path string) (*Config, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -50,6 +67,26 @@ func Load(path string) (*Config, error) {
 	if err := yaml.Unmarshal(data, &cfg); err != nil {
 		return nil, err
 	}
+	if err := cfg.normalize(); err != nil {
+		return nil, err
+	}
 
 	return &cfg, nil
+}
+
+func (c *Config) normalize() error {
+	rawDuration := c.Mine.ChunkClosureDuration
+	if rawDuration == "" {
+		c.Mine.chunkClosureDuration = DefaultMineChunkClosureDuration
+		return nil
+	}
+	duration, err := time.ParseDuration(rawDuration)
+	if err != nil {
+		return fmt.Errorf("invalid mine.chunk_closure_duration %q: %w", rawDuration, err)
+	}
+	if duration <= 0 {
+		return fmt.Errorf("invalid mine.chunk_closure_duration %q: must be positive", rawDuration)
+	}
+	c.Mine.chunkClosureDuration = duration
+	return nil
 }

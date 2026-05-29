@@ -6,6 +6,7 @@ import (
 	"go-lobby/internal/dto/req"
 	"go-lobby/internal/model"
 	"testing"
+	"time"
 )
 
 func TestChunkServiceOpenCellWritesOpenedState(t *testing.T) {
@@ -60,7 +61,8 @@ func TestChunkServiceFirstMineOpenIsCanceled(t *testing.T) {
 func TestChunkServiceOpenMineClosesChunkAfterPlayerOpenedSafeCell(t *testing.T) {
 	season := testServiceMineSeason()
 	store := newMemoryMineChunkStateStore()
-	svc := NewChunkServiceWithDeps(staticMineSeasonReader{season: season}, store)
+	closureDuration := 30 * time.Second
+	svc := NewChunkServiceWithDeps(staticMineSeasonReader{season: season}, store, closureDuration)
 	chunkID := model.ChunkID{Region: "cn", Z: model.ChunkMaxLevel, X: 10, Y: 20}
 	safeX, safeY := findMineCell(t, season, chunkID, false)
 	mineX, mineY := findMineCell(t, season, chunkID, true)
@@ -75,8 +77,17 @@ func TestChunkServiceOpenMineClosesChunkAfterPlayerOpenedSafeCell(t *testing.T) 
 	if !resp.Mine || !resp.Closed || resp.Canceled {
 		t.Fatalf("mine open after safe cell should close chunk: %+v", resp)
 	}
+	if resp.ClosedAt == nil || resp.ClosedUntil == nil {
+		t.Fatalf("closed response should include closed_at and closed_until: %+v", resp)
+	}
+	if got := resp.ClosedUntil.Sub(*resp.ClosedAt); got != closureDuration {
+		t.Fatalf("unexpected closure duration: got %v want %v", got, closureDuration)
+	}
 	if _, err := svc.OpenCell(context.Background(), 1001, chunkID.String(), &req.OpenMineCellRequest{X: 0, Y: 0}); !errors.Is(err, ErrChunkClosed) {
 		t.Fatalf("expected ErrChunkClosed, got %v", err)
+	}
+	if _, err := svc.FlagCell(context.Background(), 1001, chunkID.String(), &req.FlagMineCellRequest{X: 0, Y: 0, Flagged: true}); !errors.Is(err, ErrChunkClosed) {
+		t.Fatalf("expected ErrChunkClosed for flag, got %v", err)
 	}
 }
 
@@ -281,6 +292,78 @@ func TestChunkServiceSnapshotOmitsCanceledFlaggedCells(t *testing.T) {
 	}
 	if len(snapshot.FlaggedCells) != 0 {
 		t.Fatalf("unexpected flagged cell count: %d", len(snapshot.FlaggedCells))
+	}
+}
+
+func TestChunkServiceLazyReopensExpiredClosedChunk(t *testing.T) {
+	season := testServiceMineSeason()
+	store := newMemoryMineChunkStateStore()
+	chunkID := model.ChunkID{Region: "cn", Z: model.ChunkMaxLevel, X: 8, Y: 20}
+	closedAt := time.Now().Add(-2 * time.Minute)
+	closedUntil := time.Now().Add(-time.Minute)
+	store.items[chunkID.String()] = &model.MineChunkState{
+		SeasonID:    season.ID,
+		ChunkID:     chunkID.String(),
+		Closed:      true,
+		ClosedBy:    1001,
+		ClosedAt:    &closedAt,
+		ClosedUntil: &closedUntil,
+		Version:     2,
+		OpenedCells: make(map[int]model.MineOpenedCellSnapshot),
+		FlaggedBy:   make(map[int]int64),
+	}
+	svc := NewChunkServiceWithDeps(staticMineSeasonReader{season: season}, store, 30*time.Second)
+
+	snapshot, err := svc.GetChunkSnapshot(context.Background(), chunkID.String())
+	if err != nil {
+		t.Fatalf("GetChunkSnapshot returned error: %v", err)
+	}
+	if snapshot.Closed || snapshot.ClosedAt != nil || snapshot.ClosedUntil != nil {
+		t.Fatalf("expired chunk should reopen in snapshot: %+v", snapshot)
+	}
+	state := store.items[chunkID.String()]
+	if state.Closed || state.ClosedAt != nil || state.ClosedUntil != nil || state.ClosedBy != 0 {
+		t.Fatalf("expired chunk state should be reopened: %+v", state)
+	}
+	if state.Version != 3 {
+		t.Fatalf("reopen should increment version: got %d", state.Version)
+	}
+	if _, err := svc.FlagCell(context.Background(), 1001, chunkID.String(), &req.FlagMineCellRequest{X: 7, Y: 9, Flagged: true}); err != nil {
+		t.Fatalf("FlagCell after reopen returned error: %v", err)
+	}
+}
+
+func TestChunkServiceExpiredClosedSummaryReturnsOpeningState(t *testing.T) {
+	season := testServiceMineSeason()
+	store := newMemoryMineChunkStateStore()
+	chunkID := model.ChunkID{Region: "cn", Z: model.ChunkMaxLevel, X: 8, Y: 20}
+	closedAt := time.Now().Add(-2 * time.Minute)
+	closedUntil := time.Now().Add(-time.Minute)
+	index, err := model.ChunkCellIndex(7, 9)
+	if err != nil {
+		t.Fatalf("ChunkCellIndex returned error: %v", err)
+	}
+	store.items[chunkID.String()] = &model.MineChunkState{
+		SeasonID:    season.ID,
+		ChunkID:     chunkID.String(),
+		Closed:      true,
+		ClosedBy:    1001,
+		ClosedAt:    &closedAt,
+		ClosedUntil: &closedUntil,
+		Version:     2,
+		OpenedCells: map[int]model.MineOpenedCellSnapshot{
+			index: {X: 7, Y: 9, Index: index, OpenedBy: 1001, OpenedAt: closedAt, AdjacentMines: 1},
+		},
+		FlaggedBy: make(map[int]int64),
+	}
+	svc := NewChunkServiceWithDeps(staticMineSeasonReader{season: season}, store, 30*time.Second)
+
+	summary, err := svc.GetChunkSummary(context.Background(), chunkID.String())
+	if err != nil {
+		t.Fatalf("GetChunkSummary returned error: %v", err)
+	}
+	if summary.Closed || summary.State != "opening" || summary.ClosedAt != nil || summary.ClosedUntil != nil {
+		t.Fatalf("unexpected summary after lazy reopen: %+v", summary)
 	}
 }
 

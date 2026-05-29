@@ -18,3 +18,6 @@ rabbitmq:
   url: "amqp://guest:guest@rabbitmq:5672/"
   exchange: "go_lobby.events"
   match_result_queue: "go_lobby.rank.match_result"
+
+mine:
+  chunk_closure_duration: "5m"

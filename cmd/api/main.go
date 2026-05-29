@@ -71,7 +71,7 @@ func main() {
 	leaderboardHandler := handler.NewLeaderboardHandler(rankService)
 	mineSeasonRepo := repository.NewMineSeasonRepository(db)
 	mineChunkStateRepo := repository.NewMineChunkStateRepository(redisClient)
-	chunkService := service.NewChunkServiceWithDeps(mineSeasonRepo, mineChunkStateRepo)
+	chunkService := service.NewChunkServiceWithDeps(mineSeasonRepo, mineChunkStateRepo, cfg.Mine.ChunkClosureDurationValue())
 	chunkHandler := handler.NewChunkHandler(chunkService, mapHub)
 
 	r := gin.Default()

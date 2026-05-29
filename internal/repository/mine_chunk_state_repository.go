@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"go-lobby/internal/model"
-	"strings"
 
 	"github.com/redis/go-redis/v9"
 )
@@ -20,6 +19,10 @@ func NewMineChunkStateRepository(rdb *redis.Client) *MineChunkStateRepository {
 
 func mineChunkStateKey(seasonID int64, chunkID string) string {
 	return fmt.Sprintf("go_lobby:mine:season:%d:chunk:%s", seasonID, chunkID)
+}
+
+func mineClosedChunkSetKey(seasonID int64) string {
+	return fmt.Sprintf("go_lobby:mine:season:%d:closed_chunks", seasonID)
 }
 
 func (r *MineChunkStateRepository) GetState(ctx context.Context, seasonID int64, chunkID string) (*model.MineChunkState, error) {
@@ -48,35 +51,25 @@ func (r *MineChunkStateRepository) SaveState(ctx context.Context, state *model.M
 	if err != nil {
 		return err
 	}
-	return r.rdb.Set(ctx, mineChunkStateKey(state.SeasonID, state.ChunkID), data, 0).Err()
+	pipe := r.rdb.TxPipeline()
+	pipe.Set(ctx, mineChunkStateKey(state.SeasonID, state.ChunkID), data, 0)
+	if state.Closed {
+		pipe.SAdd(ctx, mineClosedChunkSetKey(state.SeasonID), state.ChunkID)
+	} else {
+		pipe.SRem(ctx, mineClosedChunkSetKey(state.SeasonID), state.ChunkID)
+	}
+	_, err = pipe.Exec(ctx)
+	return err
 }
 
 func (r *MineChunkStateRepository) ListClosedLeafChunkIDs(ctx context.Context, seasonID int64) (map[string]bool, error) {
-	pattern := mineChunkStateKey(seasonID, "cn:6:*")
-	iter := r.rdb.Scan(ctx, 0, pattern, 100).Iterator()
-	closed := make(map[string]bool)
-	prefix := fmt.Sprintf("go_lobby:mine:season:%d:chunk:", seasonID)
-
-	for iter.Next(ctx) {
-		key := iter.Val()
-		data, err := r.rdb.Get(ctx, key).Bytes()
-		if err != nil {
-			if err == redis.Nil {
-				continue
-			}
-			return nil, err
-		}
-		var state model.MineChunkState
-		if err := json.Unmarshal(data, &state); err != nil {
-			return nil, err
-		}
-		if state.Closed {
-			chunkID := strings.TrimPrefix(key, prefix)
-			closed[chunkID] = true
-		}
-	}
-	if err := iter.Err(); err != nil {
+	values, err := r.rdb.SMembers(ctx, mineClosedChunkSetKey(seasonID)).Result()
+	if err != nil {
 		return nil, err
+	}
+	closed := make(map[string]bool)
+	for _, chunkID := range values {
+		closed[chunkID] = true
 	}
 	return closed, nil
 }

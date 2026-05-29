@@ -14,6 +14,7 @@ type MineChunkState struct {
 	Closed      bool                           `json:"closed"`
 	ClosedBy    int64                          `json:"closed_by,omitempty"`
 	ClosedAt    *time.Time                     `json:"closed_at,omitempty"`
+	ClosedUntil *time.Time                     `json:"closed_until,omitempty"`
 	Version     int64                          `json:"version"`
 	OpenedCells map[int]MineOpenedCellSnapshot `json:"opened_cells"`
 	FlaggedBy   map[int]int64                  `json:"flagged_by"`

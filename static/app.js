@@ -69,6 +69,7 @@ const chunkDemo = {
   actionPending: false,
   lastAction: "",
   loadTimer: null,
+  closureReloadTimer: null,
   lastBBox: null,
   fallback: false,
   mapWS: null,
@@ -688,6 +689,7 @@ async function loadVisibleChunks() {
   } else {
     disconnectMapWS();
   }
+  scheduleClosureReload();
   drawChunkCanvas();
 }
 
@@ -1421,7 +1423,13 @@ function canActOnHit(hit, action) {
   if (!appState.token) return "请先登录后再操作地图";
   if (chunkDemo.fallback) return "当前使用本地 fallback，不能提交操作";
   if (chunkDemo.actionPending) return "上一次地图操作尚未完成";
-  if (hit.chunk.closed) return "chunk 已封闭";
+  if (hit.chunk.closed) {
+    if (closureDeadlineMs(hit.chunk) > 0 && closureDeadlineMs(hit.chunk) <= Date.now()) {
+      scheduleMapLoad();
+      return "封闭已到期，正在刷新状态";
+    }
+    return `chunk 已封闭${closureRemainingText(hit.chunk) ? `，${closureRemainingText(hit.chunk)}` : ""}`;
+  }
   if (hit.opened) return action === "flag" ? "已打开格子不能标记" : "";
   if (action === "open" && hit.flagged) return "已标记格子需要先取消标记";
   return "";
@@ -1441,6 +1449,45 @@ function ensureSnapshot(chunkID) {
   if (!Array.isArray(snapshot.flagged_cells)) snapshot.flagged_cells = [];
   chunkDemo.snapshots.set(chunkID, snapshot);
   return snapshot;
+}
+
+function applyClosureFields(target, source) {
+  if (!target || !source) return;
+  if (source.closed_at !== undefined) target.closed_at = source.closed_at || null;
+  if (source.closed_until !== undefined) target.closed_until = source.closed_until || null;
+}
+
+function closureDeadlineMs(item) {
+  if (!item?.closed_until) return 0;
+  const value = Date.parse(item.closed_until);
+  return Number.isFinite(value) ? value : 0;
+}
+
+function closureRemainingText(item) {
+  const deadline = closureDeadlineMs(item);
+  if (!deadline) return "";
+  const remainingMs = deadline - Date.now();
+  if (remainingMs <= 0) return "待刷新解封";
+  const totalSeconds = Math.ceil(remainingMs / 1000);
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+  return minutes > 0 ? `剩余 ${minutes}分${String(seconds).padStart(2, "0")}秒` : `剩余 ${seconds}秒`;
+}
+
+function scheduleClosureReload() {
+  window.clearTimeout(chunkDemo.closureReloadTimer);
+  const deadlines = chunkDemo.chunks
+    .filter((chunk) => chunk.closed)
+    .map((chunk) => closureDeadlineMs(chunk))
+    .filter((deadline) => deadline > Date.now());
+  if (deadlines.length === 0) return;
+  const nextDelay = Math.min(...deadlines) - Date.now() + 300;
+  chunkDemo.closureReloadTimer = window.setTimeout(() => {
+    chunkDemo.chunks.filter((chunk) => chunk.closed).forEach((chunk) => {
+      chunkDemo.snapshots.delete(chunk.chunk_id);
+    });
+    loadVisibleChunks().catch((error) => addLog("地图解封刷新失败", String(error.message || error)));
+  }, Math.max(300, nextDelay));
 }
 
 function upsertOpenedCell(chunkID, result) {
@@ -1475,8 +1522,12 @@ function updateChunkAfterAction(chunkID, result) {
   const chunk = chunkDemo.chunks.find((item) => item.chunk_id === chunkID);
   const snapshot = chunkDemo.snapshots.get(chunkID);
   if (snapshot && result.version) snapshot.version = result.version;
-  if (snapshot && result.closed) snapshot.closed = true;
+  if (snapshot) {
+    if (result.closed) snapshot.closed = true;
+    applyClosureFields(snapshot, result);
+  }
   if (!chunk) return;
+  applyClosureFields(chunk, result);
   if (result.closed) {
     chunk.closed = true;
     chunk.state = "closed";
@@ -1487,6 +1538,7 @@ function updateChunkAfterAction(chunkID, result) {
   if (!result.mine && result.index !== undefined) {
     chunk.opened_count = Math.max(Number(chunk.opened_count || 0), (chunkDemo.snapshots.get(chunkID)?.opened_cells || []).length);
   }
+  scheduleClosureReload();
 }
 
 function mapWSURL() {
@@ -1627,10 +1679,12 @@ async function reloadChunkSnapshot(chunkID) {
   const chunk = chunkDemo.chunks.find((item) => item.chunk_id === chunkID);
   if (chunk) {
     chunk.closed = Boolean(snapshot.closed);
+    applyClosureFields(chunk, snapshot);
     chunk.version = snapshot.version || chunk.version;
     chunk.opened_count = Array.isArray(snapshot.opened_cells) ? snapshot.opened_cells.length : chunk.opened_count;
     chunk.state = chunk.closed ? "closed" : chunk.opened_count > 0 ? "opening" : "normal";
   }
+  scheduleClosureReload();
   drawChunkCanvas();
 }
 
@@ -1722,16 +1776,19 @@ function updateMapHUD() {
   text("chunk_count", String(chunkDemo.chunks.length));
   text("chunk_id", chunkDemo.hoveredChunk ? chunkDemo.hoveredChunk.chunk_id : "-");
   text("chunk_hover", "cell_x=-, cell_y=-, index=-");
+  text("chunk_closure", "-");
   text("chunk_last_action", chunkDemo.lastAction || "-");
   if (chunkDemo.hoveredCell) {
     const cell = chunkDemo.hoveredCell;
     if (cell.x === undefined) {
       text("chunk_cell_state", chunkAggregateText(cell.chunk));
+      text("chunk_closure", closureRemainingText(cell.chunk) || "-");
       return;
     }
     text("chunk_hover", `cell_x=${cell.x}, cell_y=${cell.y}, index=${cell.index}`);
     if (cell.chunk.closed) {
       text("chunk_cell_state", "Chunk 已封闭 (closed)");
+      text("chunk_closure", closureRemainingText(cell.chunk) || "-");
     } else if (cell.opened) {
       text("chunk_cell_state", `已打开，邻雷 ${cell.opened.adjacent_mines || 0} (opened)`);
     } else if (cell.flagged) {
@@ -1742,14 +1799,16 @@ function updateMapHUD() {
     return;
   }
   text("chunk_cell_state", chunkDemo.hoveredChunk ? chunkAggregateText(chunkDemo.hoveredChunk) : "-");
+  text("chunk_closure", chunkDemo.hoveredChunk ? closureRemainingText(chunkDemo.hoveredChunk) || "-" : "-");
 }
 
 function chunkAggregateText(chunk) {
   const state = `${chunkStateText(chunk.state)} (${chunk.state})`;
+  const closure = closureRemainingText(chunk);
   if (Number(chunk.total_leaf_count || 0) > 1) {
-    return `${state} · 封闭叶子 ${chunk.closed_leaf_count || 0}/${chunk.total_leaf_count}`;
+    return `${state} · 封闭叶子 ${chunk.closed_leaf_count || 0}/${chunk.total_leaf_count}${closure ? ` · ${closure}` : ""}`;
   }
-  return state;
+  return closure ? `${state} · ${closure}` : state;
 }
 
 function scheduleMapLoad() {

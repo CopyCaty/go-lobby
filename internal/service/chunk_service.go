@@ -20,6 +20,8 @@ var (
 	ErrCellFlagged     = errors.New("cell is flagged")
 )
 
+const defaultChunkClosureDuration = 5 * time.Minute
+
 type MineSeasonReader interface {
 	GetActiveSeason(ctx context.Context) (*model.MineSeason, error)
 }
@@ -31,24 +33,34 @@ type MineChunkStateStore interface {
 }
 
 type ChunkService struct {
-	seasonReader MineSeasonReader
-	stateStore   MineChunkStateStore
-	mineGen      *model.MineGenerator
-	chunkLocks   sync.Map
+	seasonReader    MineSeasonReader
+	stateStore      MineChunkStateStore
+	mineGen         *model.MineGenerator
+	closureDuration time.Duration
+	chunkLocks      sync.Map
 }
 
 func NewChunkService() *ChunkService {
 	return &ChunkService{
-		mineGen: model.NewMineGenerator(),
+		mineGen:         model.NewMineGenerator(),
+		closureDuration: defaultChunkClosureDuration,
 	}
 }
 
-func NewChunkServiceWithDeps(seasonReader MineSeasonReader, stateStore MineChunkStateStore) *ChunkService {
+func NewChunkServiceWithDeps(seasonReader MineSeasonReader, stateStore MineChunkStateStore, closureDurations ...time.Duration) *ChunkService {
 	return &ChunkService{
-		seasonReader: seasonReader,
-		stateStore:   stateStore,
-		mineGen:      model.NewMineGenerator(),
+		seasonReader:    seasonReader,
+		stateStore:      stateStore,
+		mineGen:         model.NewMineGenerator(),
+		closureDuration: resolveChunkClosureDuration(closureDurations...),
 	}
+}
+
+func resolveChunkClosureDuration(closureDurations ...time.Duration) time.Duration {
+	if len(closureDurations) > 0 && closureDurations[0] > 0 {
+		return closureDurations[0]
+	}
+	return defaultChunkClosureDuration
 }
 
 func (s *ChunkService) GetChunkSummary(ctx context.Context, rawChunkID string) (*res.ChunkSummaryResponse, error) {
@@ -67,16 +79,19 @@ func (s *ChunkService) GetChunkSummary(ctx context.Context, rawChunkID string) (
 	if err != nil {
 		return nil, err
 	}
-	closedLeafIDs, err := s.stateStore.ListClosedLeafChunkIDs(ctx, season.ID)
-	if err != nil {
-		return nil, err
-	}
 	if chunkID.Z == model.ChunkMaxLevel {
 		state, err := s.loadChunkState(ctx, season.ID, chunkID.String())
 		if err != nil {
 			return nil, err
 		}
+		if err := s.reopenExpiredChunk(ctx, state, time.Now()); err != nil {
+			return nil, err
+		}
 		applyMineStateToSummary(summary, state)
+	}
+	closedLeafIDs, err := s.stateStore.ListClosedLeafChunkIDs(ctx, season.ID)
+	if err != nil {
+		return nil, err
 	}
 	applyClosedLeafAggregate(summary, chunkID, closedLeafIDs)
 	return summary, nil
@@ -110,6 +125,9 @@ func (s *ChunkService) GetChunkSnapshot(ctx context.Context, rawChunkID string) 
 		if err != nil {
 			return nil, err
 		}
+		if err := s.reopenExpiredChunk(ctx, state, time.Now()); err != nil {
+			return nil, err
+		}
 		return buildSnapshotFromState(chunkID, state), nil
 	}
 	summary, err := buildDemoChunkSummary(chunkID)
@@ -134,10 +152,27 @@ func (s *ChunkService) ListChunks(ctx context.Context, level int, bbox model.Chu
 	}
 	var season *model.MineSeason
 	var closedLeafIDs map[string]bool
+	leafStates := make(map[string]*model.MineChunkState)
 	if s.hasMineDeps() {
 		season, err = s.activeSeason(ctx)
 		if err != nil {
 			return nil, err
+		}
+		if level == model.ChunkMaxLevel {
+			now := time.Now()
+			for y := minY; y <= maxY; y++ {
+				for x := minX; x <= maxX; x++ {
+					chunkID := model.ChunkID{Region: "cn", Z: level, X: x, Y: y}
+					state, err := s.loadChunkState(ctx, season.ID, chunkID.String())
+					if err != nil {
+						return nil, err
+					}
+					if err := s.reopenExpiredChunk(ctx, state, now); err != nil {
+						return nil, err
+					}
+					leafStates[chunkID.String()] = state
+				}
+			}
 		}
 		closedLeafIDs, err = s.stateStore.ListClosedLeafChunkIDs(ctx, season.ID)
 		if err != nil {
@@ -163,11 +198,8 @@ func (s *ChunkService) ListChunks(ctx context.Context, level int, bbox model.Chu
 				if err != nil {
 					return nil, err
 				}
-				state, err := s.loadChunkState(ctx, season.ID, summary.ChunkID)
-				if err != nil {
-					return nil, err
-				}
 				if level == model.ChunkMaxLevel {
+					state := leafStates[summary.ChunkID]
 					applyMineStateToSummary(summary, state)
 				}
 				applyClosedLeafAggregate(summary, chunkID, closedLeafIDs)
@@ -204,6 +236,9 @@ func (s *ChunkService) OpenCell(ctx context.Context, userID int64, rawChunkID st
 	}
 	state, err := s.loadOrNewChunkState(ctx, season.ID, chunkID.String())
 	if err != nil {
+		return nil, err
+	}
+	if err := s.reopenExpiredChunk(ctx, state, time.Now()); err != nil {
 		return nil, err
 	}
 	if state.Closed {
@@ -248,9 +283,11 @@ func (s *ChunkService) OpenCell(ctx context.Context, userID int64, rawChunkID st
 				OpenedAt: now,
 			}, nil
 		}
+		closedUntil := now.Add(s.closureDuration)
 		state.Closed = true
 		state.ClosedBy = userID
 		state.ClosedAt = &now
+		state.ClosedUntil = &closedUntil
 	} else {
 		adjacentMines, err = s.mineGen.AdjacentMineCount(season, chunkID, openReq.X, openReq.Y)
 		if err != nil {
@@ -276,6 +313,8 @@ func (s *ChunkService) OpenCell(ctx context.Context, userID int64, rawChunkID st
 		Index:         index,
 		Mine:          isMine,
 		Closed:        state.Closed,
+		ClosedAt:      state.ClosedAt,
+		ClosedUntil:   state.ClosedUntil,
 		AdjacentMines: adjacentMines,
 		Version:       state.Version,
 		OpenedAt:      now,
@@ -392,6 +431,9 @@ func (s *ChunkService) FlagCell(ctx context.Context, userID int64, rawChunkID st
 	if err != nil {
 		return nil, err
 	}
+	if err := s.reopenExpiredChunk(ctx, state, time.Now()); err != nil {
+		return nil, err
+	}
 	if state.Closed {
 		return nil, ErrChunkClosed
 	}
@@ -458,15 +500,47 @@ func (s *ChunkService) loadOrNewChunkState(ctx context.Context, seasonID int64, 
 	return state, nil
 }
 
+func (s *ChunkService) reopenExpiredChunk(ctx context.Context, state *model.MineChunkState, now time.Time) error {
+	if state == nil || !state.Closed {
+		return nil
+	}
+	changed := false
+	if state.ClosedUntil == nil {
+		if state.ClosedAt == nil {
+			closedAt := now
+			state.ClosedAt = &closedAt
+		}
+		closedUntil := state.ClosedAt.Add(s.closureDuration)
+		state.ClosedUntil = &closedUntil
+		changed = true
+	}
+	if now.Before(*state.ClosedUntil) {
+		if changed {
+			return s.stateStore.SaveState(ctx, state)
+		}
+		return nil
+	}
+	state.Closed = false
+	state.ClosedBy = 0
+	state.ClosedAt = nil
+	state.ClosedUntil = nil
+	state.Version++
+	return s.stateStore.SaveState(ctx, state)
+}
+
 func applyMineStateToSummary(summary *res.ChunkSummaryResponse, state *model.MineChunkState) {
 	if state == nil {
 		summary.State = "normal"
 		summary.Closed = false
+		summary.ClosedAt = nil
+		summary.ClosedUntil = nil
 		summary.OpenedCount = 0
 		summary.Version = 1
 		return
 	}
 	summary.Closed = state.Closed
+	summary.ClosedAt = state.ClosedAt
+	summary.ClosedUntil = state.ClosedUntil
 	summary.Version = state.Version
 	summary.OpenedCount = len(state.OpenedCells)
 	switch {
@@ -489,7 +563,7 @@ func applyClosedLeafAggregate(summary *res.ChunkSummaryResponse, chunkID model.C
 	}
 
 	if chunkID.Z == model.ChunkMaxLevel {
-		summary.Closed = closedLeafCount == 1
+		summary.Closed = summary.Closed || closedLeafCount == 1
 	}
 	switch {
 	case closedLeafCount == totalLeafCount && totalLeafCount > 0:
@@ -546,6 +620,8 @@ func buildSnapshotFromState(chunkID model.ChunkID, state *model.MineChunkState) 
 		return snapshot
 	}
 	snapshot.Closed = state.Closed
+	snapshot.ClosedAt = state.ClosedAt
+	snapshot.ClosedUntil = state.ClosedUntil
 	snapshot.Version = state.Version
 	snapshot.OpenedCells = make([]res.OpenedCellResponse, 0, len(state.OpenedCells))
 	for _, cell := range state.OpenedCells {

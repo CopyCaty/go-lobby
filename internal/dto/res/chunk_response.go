@@ -17,6 +17,8 @@ type ChunkSummaryResponse struct {
 	Height          int               `json:"height"`
 	State           string            `json:"state"`
 	Closed          bool              `json:"closed"`
+	ClosedAt        *time.Time        `json:"closed_at,omitempty"`
+	ClosedUntil     *time.Time        `json:"closed_until,omitempty"`
 	Version         int64             `json:"version"`
 	OpenedCount     int               `json:"opened_count"`
 	ClosedLeafCount int               `json:"closed_leaf_count"`
@@ -36,6 +38,8 @@ type ChunkSnapshotResponse struct {
 	Width        int                   `json:"width"`
 	Height       int                   `json:"height"`
 	Closed       bool                  `json:"closed"`
+	ClosedAt     *time.Time            `json:"closed_at,omitempty"`
+	ClosedUntil  *time.Time            `json:"closed_until,omitempty"`
 	Version      int64                 `json:"version"`
 	OpenedCells  []OpenedCellResponse  `json:"opened_cells"`
 	FlaggedCells []FlaggedCellResponse `json:"flagged_cells"`
