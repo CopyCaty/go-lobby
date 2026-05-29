@@ -79,6 +79,9 @@ func (s *MatchService) SetMatchResult(ctx context.Context, matchID int64, winTea
 	if err != nil {
 		return err
 	}
+	if s.publisher == nil {
+		return nil
+	}
 	err = s.publisher.PublishJSON(
 		ctx,
 		event.MatchResultFinishedRoutingKey,

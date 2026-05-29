@@ -12,6 +12,7 @@ type StatusMatchQueueResponse struct {
 	Status    matchqueue.QueueStatus   `json:"status"`
 	TicketID  string                   `json:"ticket_id"`
 	RoomID    string                   `json:"room_id,omitempty"`
+	ChunkID   string                   `json:"chunk_id,omitempty"`
 	Teams     []matchqueue.MatchedTeam `json:"teams,omitempty"`
 	UpdatedAt time.Time                `json:"updated_at"`
 }

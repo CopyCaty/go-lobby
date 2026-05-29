@@ -30,6 +30,7 @@ type QueueUserState struct {
 	MatchID     int64
 	TicketID    string
 	RoomID      string
+	ChunkID     string
 	Teams       []MatchedTeam
 	EnqueueTime time.Time
 	UpdatedAt   time.Time

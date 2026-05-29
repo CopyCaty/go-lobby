@@ -3,11 +3,13 @@ package service
 import (
 	"context"
 	"errors"
+	"fmt"
 	"sync"
 	"testing"
 	"time"
 
 	"go-lobby/internal/dto/req"
+	"go-lobby/internal/matchqueue"
 	"go-lobby/internal/model"
 )
 
@@ -607,6 +609,160 @@ func TestChunkServiceWorkerExitsAfterIdleTimeout(t *testing.T) {
 	t.Fatalf("worker did not exit after idle timeout, workers=%d", svc.chunkWorkerCount())
 }
 
+func TestChunkServiceMineMatchRejectsUsersOutsideLockedChunk(t *testing.T) {
+	season := testServiceMineSeason()
+	store := newMemoryMineChunkStateStore()
+	matchStore := newMemoryMineMatchStore()
+	chunkID := model.ChunkID{Region: "cn", Z: model.ChunkMaxLevel, X: 10, Y: 20}
+	setupMineMatchState(t, matchStore, season.ID, 9001, chunkID.String())
+	svc := NewChunkServiceWithDeps(staticMineSeasonReader{season: season}, store)
+	svc.SetMineMatchService(NewMineMatchService(staticMineSeasonReader{season: season}, store, matchStore, nil))
+	x, y := findNumberCell(t, season, chunkID, nil)
+
+	if _, err := svc.OpenCell(context.Background(), 3003, chunkID.String(), &req.OpenMineCellRequest{X: x, Y: y}); !errors.Is(err, ErrMineMatchChunkOccupied) {
+		t.Fatalf("expected ErrMineMatchChunkOccupied, got %v", err)
+	}
+}
+
+func TestChunkServiceMineMatchPlayerCanOnlyOperateAssignedChunk(t *testing.T) {
+	season := testServiceMineSeason()
+	store := newMemoryMineChunkStateStore()
+	matchStore := newMemoryMineMatchStore()
+	chunkID := model.ChunkID{Region: "cn", Z: model.ChunkMaxLevel, X: 10, Y: 20}
+	otherChunkID := model.ChunkID{Region: "cn", Z: model.ChunkMaxLevel, X: 11, Y: 20}
+	setupMineMatchState(t, matchStore, season.ID, 9001, chunkID.String())
+	svc := NewChunkServiceWithDeps(staticMineSeasonReader{season: season}, store)
+	svc.SetMineMatchService(NewMineMatchService(staticMineSeasonReader{season: season}, store, matchStore, nil))
+	x, y := findNumberCell(t, season, otherChunkID, nil)
+
+	if _, err := svc.OpenCell(context.Background(), 1001, otherChunkID.String(), &req.OpenMineCellRequest{X: x, Y: y}); !errors.Is(err, ErrMineMatchWrongChunk) {
+		t.Fatalf("expected ErrMineMatchWrongChunk, got %v", err)
+	}
+}
+
+func TestChunkServiceMineMatchScoresNewOpenedCells(t *testing.T) {
+	season := testServiceMineSeason()
+	store := newMemoryMineChunkStateStore()
+	matchStore := newMemoryMineMatchStore()
+	chunkID := model.ChunkID{Region: "cn", Z: model.ChunkMaxLevel, X: 10, Y: 20}
+	setupMineMatchState(t, matchStore, season.ID, 9001, chunkID.String())
+	svc := NewChunkServiceWithDeps(staticMineSeasonReader{season: season}, store)
+	svc.SetMineMatchService(NewMineMatchService(staticMineSeasonReader{season: season}, store, matchStore, nil))
+	x, y := findNumberCell(t, season, chunkID, nil)
+
+	resp, err := svc.OpenCell(context.Background(), 1001, chunkID.String(), &req.OpenMineCellRequest{X: x, Y: y})
+	if err != nil {
+		t.Fatalf("OpenCell returned error: %v", err)
+	}
+	if resp.NewOpenedCount != 1 {
+		t.Fatalf("unexpected new opened count: %d", resp.NewOpenedCount)
+	}
+	if resp.MatchID != 9001 || resp.MatchScores[1001] != 1 {
+		t.Fatalf("unexpected match response: %+v", resp)
+	}
+}
+
+func TestChunkServiceMineMatchFirstMineOpenKeepsMatchOngoing(t *testing.T) {
+	season := testServiceMineSeason()
+	store := newMemoryMineChunkStateStore()
+	matchStore := newMemoryMineMatchStore()
+	chunkID := model.ChunkID{Region: "cn", Z: model.ChunkMaxLevel, X: 10, Y: 20}
+	setupMineMatchState(t, matchStore, season.ID, 9001, chunkID.String())
+	svc := NewChunkServiceWithDeps(staticMineSeasonReader{season: season}, store)
+	svc.SetMineMatchService(NewMineMatchService(staticMineSeasonReader{season: season}, store, matchStore, nil))
+	x, y := findMineCell(t, season, chunkID, true)
+
+	resp, err := svc.OpenCell(context.Background(), 1001, chunkID.String(), &req.OpenMineCellRequest{X: x, Y: y})
+	if err != nil {
+		t.Fatalf("OpenCell returned error: %v", err)
+	}
+	if !resp.Canceled || resp.MatchFinished || resp.MatchScores[1001] != 0 {
+		t.Fatalf("first mine should be protected without finishing match: %+v", resp)
+	}
+	active, err := matchStore.GetActiveMatchByUser(context.Background(), 1001)
+	if err != nil {
+		t.Fatalf("GetActiveMatchByUser returned error: %v", err)
+	}
+	if active == nil || active.Status != model.MineMatchStatusOngoing {
+		t.Fatalf("match should stay ongoing: %+v", active)
+	}
+}
+
+func TestChunkServiceMineMatchMineAfterSafeOpenFinishesMatch(t *testing.T) {
+	season := testServiceMineSeason()
+	store := newMemoryMineChunkStateStore()
+	matchStore := newMemoryMineMatchStore()
+	chunkID := model.ChunkID{Region: "cn", Z: model.ChunkMaxLevel, X: 10, Y: 20}
+	setupMineMatchState(t, matchStore, season.ID, 9001, chunkID.String())
+	svc := NewChunkServiceWithDeps(staticMineSeasonReader{season: season}, store)
+	svc.SetMineMatchService(NewMineMatchService(staticMineSeasonReader{season: season}, store, matchStore, nil))
+	safeX, safeY := findNumberCell(t, season, chunkID, nil)
+	mineX, mineY := findMineCell(t, season, chunkID, true)
+
+	if _, err := svc.OpenCell(context.Background(), 1001, chunkID.String(), &req.OpenMineCellRequest{X: safeX, Y: safeY}); err != nil {
+		t.Fatalf("safe OpenCell returned error: %v", err)
+	}
+	resp, err := svc.OpenCell(context.Background(), 1001, chunkID.String(), &req.OpenMineCellRequest{X: mineX, Y: mineY})
+	if err != nil {
+		t.Fatalf("mine OpenCell returned error: %v", err)
+	}
+	if !resp.Mine || !resp.MatchFinished || resp.WinTeamNo == nil || *resp.WinTeamNo != 1 {
+		t.Fatalf("mine after safe open should finish with opponent win: %+v", resp)
+	}
+	if locked, err := matchStore.GetChunkLock(context.Background(), season.ID, chunkID.String()); err != nil || locked != 0 {
+		t.Fatalf("chunk lock should be released, locked=%d err=%v", locked, err)
+	}
+	if active, err := matchStore.GetActiveMatchByUser(context.Background(), 1001); err != nil || active != nil {
+		t.Fatalf("active match should be cleared, active=%+v err=%v", active, err)
+	}
+}
+
+func TestMineMatchServiceAssignChunkSkipsDirtyAndLockedChunks(t *testing.T) {
+	season := testServiceMineSeason()
+	store := newMemoryMineChunkStateStore()
+	matchStore := newMemoryMineMatchStore()
+	gridSize, err := model.ChunkGridSize(model.ChunkMaxLevel)
+	if err != nil {
+		t.Fatalf("ChunkGridSize returned error: %v", err)
+	}
+	cleanChunkID := model.ChunkID{Region: "cn", Z: model.ChunkMaxLevel, X: 3, Y: 4}.String()
+	lockedChunkID := model.ChunkID{Region: "cn", Z: model.ChunkMaxLevel, X: 5, Y: 6}.String()
+	for y := 0; y < gridSize; y++ {
+		for x := 0; x < gridSize; x++ {
+			chunkID := model.ChunkID{Region: "cn", Z: model.ChunkMaxLevel, X: x, Y: y}.String()
+			if chunkID == cleanChunkID || chunkID == lockedChunkID {
+				continue
+			}
+			store.items[chunkID] = &model.MineChunkState{
+				SeasonID:    season.ID,
+				ChunkID:     chunkID,
+				Version:     1,
+				OpenedCells: make(map[int]model.MineOpenedCellSnapshot),
+				FlaggedBy:   map[int]int64{0: 1001},
+			}
+		}
+	}
+	if locked, err := matchStore.TryLockChunk(context.Background(), season.ID, lockedChunkID, 7777); err != nil || !locked {
+		t.Fatalf("TryLockChunk locked=%v err=%v", locked, err)
+	}
+	svc := NewMineMatchService(staticMineSeasonReader{season: season}, store, matchStore, nil)
+	teams := []matchqueue.MatchedTeam{
+		{TeamID: 0, UserIDs: []int64{1001}},
+		{TeamID: 1, UserIDs: []int64{1002}},
+	}
+
+	chunkID, err := svc.AssignChunkForMatch(context.Background(), 9001, "room-test", teams)
+	if err != nil {
+		t.Fatalf("AssignChunkForMatch returned error: %v", err)
+	}
+	if chunkID != cleanChunkID {
+		t.Fatalf("unexpected assigned chunk: got %s want %s", chunkID, cleanChunkID)
+	}
+	if locked, err := matchStore.GetChunkLock(context.Background(), season.ID, cleanChunkID); err != nil || locked != 9001 {
+		t.Fatalf("clean chunk should be locked by match, locked=%d err=%v", locked, err)
+	}
+}
+
 type staticMineSeasonReader struct {
 	season *model.MineSeason
 }
@@ -647,6 +803,144 @@ func (s *memoryMineChunkStateStore) ListClosedLeafChunkIDs(ctx context.Context, 
 		}
 	}
 	return closed, nil
+}
+
+type memoryMineMatchStore struct {
+	mu          sync.Mutex
+	matches     map[int64]*model.MineMatchState
+	activeUsers map[int64]int64
+	locks       map[string]int64
+}
+
+func newMemoryMineMatchStore() *memoryMineMatchStore {
+	return &memoryMineMatchStore{
+		matches:     make(map[int64]*model.MineMatchState),
+		activeUsers: make(map[int64]int64),
+		locks:       make(map[string]int64),
+	}
+}
+
+func (s *memoryMineMatchStore) GetMatchState(ctx context.Context, matchID int64) (*model.MineMatchState, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	state := s.matches[matchID]
+	if state == nil {
+		return nil, nil
+	}
+	return cloneMineMatchState(state), nil
+}
+
+func (s *memoryMineMatchStore) SaveMatchState(ctx context.Context, state *model.MineMatchState) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.matches[state.MatchID] = cloneMineMatchState(state)
+	return nil
+}
+
+func (s *memoryMineMatchStore) GetActiveMatchByUser(ctx context.Context, userID int64) (*model.MineMatchState, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	matchID := s.activeUsers[userID]
+	if matchID == 0 {
+		return nil, nil
+	}
+	state := s.matches[matchID]
+	if state == nil || state.Status != model.MineMatchStatusOngoing {
+		return nil, nil
+	}
+	return cloneMineMatchState(state), nil
+}
+
+func (s *memoryMineMatchStore) SetActiveMatchForUsers(ctx context.Context, state *model.MineMatchState) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for userID := range state.UserTeams {
+		s.activeUsers[userID] = state.MatchID
+	}
+	return nil
+}
+
+func (s *memoryMineMatchStore) DeleteActiveMatchForUsers(ctx context.Context, state *model.MineMatchState) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for userID := range state.UserTeams {
+		delete(s.activeUsers, userID)
+	}
+	return nil
+}
+
+func (s *memoryMineMatchStore) GetChunkLock(ctx context.Context, seasonID int64, chunkID string) (int64, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.locks[memoryMineChunkLockKey(seasonID, chunkID)], nil
+}
+
+func (s *memoryMineMatchStore) TryLockChunk(ctx context.Context, seasonID int64, chunkID string, matchID int64) (bool, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	key := memoryMineChunkLockKey(seasonID, chunkID)
+	if s.locks[key] != 0 {
+		return false, nil
+	}
+	s.locks[key] = matchID
+	return true, nil
+}
+
+func (s *memoryMineMatchStore) UnlockChunk(ctx context.Context, seasonID int64, chunkID string, matchID int64) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	key := memoryMineChunkLockKey(seasonID, chunkID)
+	if s.locks[key] == matchID {
+		delete(s.locks, key)
+	}
+	return nil
+}
+
+func setupMineMatchState(t *testing.T, store *memoryMineMatchStore, seasonID int64, matchID int64, chunkID string) {
+	t.Helper()
+	teams := []matchqueue.MatchedTeam{
+		{TeamID: 0, UserIDs: []int64{1001}},
+		{TeamID: 1, UserIDs: []int64{1002}},
+	}
+	state := buildMineMatchState(matchID, "room-test", seasonID, chunkID, teams)
+	if err := store.SaveMatchState(context.Background(), state); err != nil {
+		t.Fatalf("SaveMatchState returned error: %v", err)
+	}
+	if err := store.SetActiveMatchForUsers(context.Background(), state); err != nil {
+		t.Fatalf("SetActiveMatchForUsers returned error: %v", err)
+	}
+	locked, err := store.TryLockChunk(context.Background(), seasonID, chunkID, matchID)
+	if err != nil {
+		t.Fatalf("TryLockChunk returned error: %v", err)
+	}
+	if !locked {
+		t.Fatalf("expected chunk lock to be acquired")
+	}
+}
+
+func memoryMineChunkLockKey(seasonID int64, chunkID string) string {
+	return fmt.Sprintf("%d:%s", seasonID, chunkID)
+}
+
+func cloneMineMatchState(state *model.MineMatchState) *model.MineMatchState {
+	cloned := *state
+	cloned.Teams = make(map[int8][]int64, len(state.Teams))
+	for teamNo, userIDs := range state.Teams {
+		cloned.Teams[teamNo] = append([]int64(nil), userIDs...)
+	}
+	cloned.UserTeams = make(map[int64]int8, len(state.UserTeams))
+	for userID, teamNo := range state.UserTeams {
+		cloned.UserTeams[userID] = teamNo
+	}
+	cloned.PlayerScores = make(map[int64]int, len(state.PlayerScores))
+	for userID, score := range state.PlayerScores {
+		cloned.PlayerScores[userID] = score
+	}
+	cloned.LastScoreAt = make(map[int64]int64, len(state.LastScoreAt))
+	for userID, lastScoreAt := range state.LastScoreAt {
+		cloned.LastScoreAt[userID] = lastScoreAt
+	}
+	return &cloned
 }
 
 func testServiceMineSeason() *model.MineSeason {

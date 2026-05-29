@@ -61,8 +61,6 @@ func main() {
 	matchService := service.NewMatchService(matchRepo, publisher)
 
 	matchQueueRepo := repository.NewMatchQueueRepository(redisClient)
-	matchQueueService := service.NewMatchQueueService(matchService, roomService, matchQueueRepo)
-	matchQueueHandler := handler.NewMatchQueueHandler(matchQueueService)
 	matchHandler := handler.NewMatchHandler(matchService)
 
 	rankRepo := repository.NewRankRepository(db)
@@ -71,8 +69,13 @@ func main() {
 	leaderboardHandler := handler.NewLeaderboardHandler(rankService)
 	mineSeasonRepo := repository.NewMineSeasonRepository(db)
 	mineChunkStateRepo := repository.NewMineChunkStateRepository(redisClient)
+	mineMatchRepo := repository.NewMineMatchRepository(redisClient)
 	chunkService := service.NewChunkServiceWithDeps(mineSeasonRepo, mineChunkStateRepo, cfg.Mine.ChunkClosureDurationValue())
+	mineMatchService := service.NewMineMatchService(mineSeasonRepo, mineChunkStateRepo, mineMatchRepo, matchService)
+	chunkService.SetMineMatchService(mineMatchService)
 	chunkHandler := handler.NewChunkHandler(chunkService, mapHub)
+	matchQueueService := service.NewMatchQueueService(matchService, roomService, matchQueueRepo, mineMatchService)
+	matchQueueHandler := handler.NewMatchQueueHandler(matchQueueService)
 
 	r := gin.Default()
 

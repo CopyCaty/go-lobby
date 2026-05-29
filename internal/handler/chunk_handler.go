@@ -249,6 +249,20 @@ func writeChunkError(c *gin.Context, err error) {
 		})
 		return
 	}
+	if errors.Is(err, service.ErrMineMatchChunkOccupied) {
+		c.JSON(http.StatusConflict, gin.H{
+			"code":    409,
+			"message": "chunk 正在 1v1 对局中",
+		})
+		return
+	}
+	if errors.Is(err, service.ErrMineMatchWrongChunk) {
+		c.JSON(http.StatusForbidden, gin.H{
+			"code":    403,
+			"message": "只能操作当前 1v1 对局分配的 chunk",
+		})
+		return
+	}
 	c.JSON(http.StatusInternalServerError, gin.H{
 		"code":    500,
 		"message": err.Error(),

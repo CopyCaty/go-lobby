@@ -38,6 +38,7 @@ type ChunkService struct {
 	seasonReader      MineSeasonReader
 	stateStore        MineChunkStateStore
 	mineGen           *model.MineGenerator
+	mineMatchService  *MineMatchService
 	closureDuration   time.Duration
 	workersMu         sync.Mutex
 	workers           map[string]*chunkWorker
@@ -94,6 +95,10 @@ func NewChunkServiceWithDeps(seasonReader MineSeasonReader, stateStore MineChunk
 		workerIdleTimeout: defaultChunkWorkerIdleTimeout,
 		workerQueueSize:   defaultChunkWorkerQueueSize,
 	}
+}
+
+func (s *ChunkService) SetMineMatchService(mineMatchService *MineMatchService) {
+	s.mineMatchService = mineMatchService
 }
 
 func resolveChunkClosureDuration(closureDurations ...time.Duration) time.Duration {
@@ -286,6 +291,9 @@ func (s *ChunkService) openCellInWorker(ctx context.Context, userID int64, chunk
 	if err != nil {
 		return nil, err
 	}
+	if _, err := s.authorizeMineMatchOperation(ctx, userID, season.ID, chunkID.String()); err != nil {
+		return nil, err
+	}
 	state, err := s.loadOrNewChunkState(ctx, season.ID, chunkID.String())
 	if err != nil {
 		return nil, err
@@ -297,24 +305,30 @@ func (s *ChunkService) openCellInWorker(ctx context.Context, userID int64, chunk
 		return nil, ErrChunkClosed
 	}
 	if opened, ok := state.OpenedCells[index]; ok {
-		return &res.OpenMineCellResponse{
-			ChunkID:       chunkID.String(),
-			X:             opened.X,
-			Y:             opened.Y,
-			Index:         opened.Index,
-			Mine:          false,
-			Closed:        state.Closed,
-			AdjacentMines: opened.AdjacentMines,
-			Version:       state.Version,
-			OpenedAt:      opened.OpenedAt,
-			OpenedCells:   []res.OpenedCellResponse{openedCellResponse(opened)},
-		}, nil
+		resp := &res.OpenMineCellResponse{
+			ChunkID:        chunkID.String(),
+			X:              opened.X,
+			Y:              opened.Y,
+			Index:          opened.Index,
+			Mine:           false,
+			Closed:         state.Closed,
+			AdjacentMines:  opened.AdjacentMines,
+			Version:        state.Version,
+			OpenedAt:       opened.OpenedAt,
+			NewOpenedCount: 0,
+			OpenedCells:    []res.OpenedCellResponse{openedCellResponse(opened)},
+		}
+		if err := s.applyMineMatchOpenResult(ctx, userID, season, chunkID, state, resp); err != nil {
+			return nil, err
+		}
+		return resp, nil
 	}
 	if _, ok := state.FlaggedBy[index]; ok {
 		return nil, ErrCellFlagged
 	}
 
 	now := time.Now()
+	openedBefore := len(state.OpenedCells)
 	isMine, err := s.mineGen.IsMine(season, chunkID, openReq.X, openReq.Y)
 	if err != nil {
 		return nil, err
@@ -322,7 +336,7 @@ func (s *ChunkService) openCellInWorker(ctx context.Context, userID int64, chunk
 	adjacentMines := 0
 	if isMine {
 		if !playerHasOpenedCell(state, userID) {
-			return &res.OpenMineCellResponse{
+			resp := &res.OpenMineCellResponse{
 				ChunkID:  chunkID.String(),
 				X:        openReq.X,
 				Y:        openReq.Y,
@@ -333,7 +347,11 @@ func (s *ChunkService) openCellInWorker(ctx context.Context, userID int64, chunk
 				Reason:   "first_open_mine_protected",
 				Version:  state.Version,
 				OpenedAt: now,
-			}, nil
+			}
+			if err := s.applyMineMatchOpenResult(ctx, userID, season, chunkID, state, resp); err != nil {
+				return nil, err
+			}
+			return resp, nil
 		}
 		closedUntil := now.Add(s.closureDuration)
 		state.Closed = true
@@ -358,20 +376,25 @@ func (s *ChunkService) openCellInWorker(ctx context.Context, userID int64, chunk
 		return nil, err
 	}
 
-	return &res.OpenMineCellResponse{
-		ChunkID:       chunkID.String(),
-		X:             openReq.X,
-		Y:             openReq.Y,
-		Index:         index,
-		Mine:          isMine,
-		Closed:        state.Closed,
-		ClosedAt:      state.ClosedAt,
-		ClosedUntil:   state.ClosedUntil,
-		AdjacentMines: adjacentMines,
-		Version:       state.Version,
-		OpenedAt:      now,
-		OpenedCells:   openedCellsResponse(state.OpenedCells),
-	}, nil
+	resp := &res.OpenMineCellResponse{
+		ChunkID:        chunkID.String(),
+		X:              openReq.X,
+		Y:              openReq.Y,
+		Index:          index,
+		Mine:           isMine,
+		Closed:         state.Closed,
+		ClosedAt:       state.ClosedAt,
+		ClosedUntil:    state.ClosedUntil,
+		AdjacentMines:  adjacentMines,
+		Version:        state.Version,
+		OpenedAt:       now,
+		NewOpenedCount: len(state.OpenedCells) - openedBefore,
+		OpenedCells:    openedCellsResponse(state.OpenedCells),
+	}
+	if err := s.applyMineMatchOpenResult(ctx, userID, season, chunkID, state, resp); err != nil {
+		return nil, err
+	}
+	return resp, nil
 }
 
 func playerHasOpenedCell(state *model.MineChunkState, userID int64) bool {
@@ -491,6 +514,9 @@ func (s *ChunkService) flagCellInWorker(ctx context.Context, userID int64, chunk
 	if err != nil {
 		return nil, err
 	}
+	if _, err := s.authorizeMineMatchOperation(ctx, userID, season.ID, chunkID.String()); err != nil {
+		return nil, err
+	}
 	state, err := s.loadOrNewChunkState(ctx, season.ID, chunkID.String())
 	if err != nil {
 		return nil, err
@@ -521,6 +547,27 @@ func (s *ChunkService) flagCellInWorker(ctx context.Context, userID int64, chunk
 		Flagged: flagReq.Flagged,
 		Version: state.Version,
 	}, nil
+}
+
+func (s *ChunkService) authorizeMineMatchOperation(ctx context.Context, userID int64, seasonID int64, chunkID string) (*model.MineMatchState, error) {
+	if s.mineMatchService == nil {
+		return nil, nil
+	}
+	return s.mineMatchService.AuthorizeChunkOperation(ctx, userID, seasonID, chunkID)
+}
+
+func (s *ChunkService) applyMineMatchOpenResult(
+	ctx context.Context,
+	userID int64,
+	season *model.MineSeason,
+	chunkID model.ChunkID,
+	state *model.MineChunkState,
+	resp *res.OpenMineCellResponse,
+) error {
+	if s.mineMatchService == nil {
+		return nil
+	}
+	return s.mineMatchService.ApplyOpenResult(ctx, userID, season, chunkID, state, resp)
 }
 
 func (s *ChunkService) hasMineDeps() bool {

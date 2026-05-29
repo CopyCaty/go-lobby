@@ -8,5 +8,6 @@ type JoinMatchQueueResponse struct {
 	QueueTicketID string                   `json:"queue_ticket_id,omitempty"`
 	Mode          string                   `json:"mode"`
 	RoomID        string                   `json:"room_id,omitempty"`
+	ChunkID       string                   `json:"chunk_id,omitempty"`
 	Teams         []matchqueue.MatchedTeam `json:"teams,omitempty"`
 }
