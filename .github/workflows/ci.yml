@@ -42,6 +42,7 @@ jobs:
           script: |
             set -euo pipefail
             DEPLOY_PATH="${{ secrets.DEPLOY_PATH != '' && secrets.DEPLOY_PATH || '/opt/go-lobby' }}"
+            git config --global --add safe.directory "$DEPLOY_PATH"
             cd "$DEPLOY_PATH"
             git fetch origin main
             git reset --hard origin/main
