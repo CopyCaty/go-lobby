@@ -27,6 +27,9 @@ go.work.sum
 # env file
 .env
 
+# CI pack artifact
+release.tgz
+
 # Editor/IDE
 # .idea/
 # .vscode/
