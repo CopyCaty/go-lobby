@@ -61,6 +61,8 @@ services:
   migrate:
     image: golang:1.25-alpine
     container_name: go-lobby-migrate
+    environment:
+      GOPROXY: https://goproxy.cn,direct
     working_dir: /app
     volumes:
       - ./sql:/app/sql:ro

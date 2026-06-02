@@ -5,6 +5,10 @@ on:
     branches: [main]
   pull_request:
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   test:
     runs-on: ubuntu-latest
@@ -34,13 +38,15 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # 腾讯云访问 GitHub 不稳定，不在服务器上 git pull，改由 Actions 打包后 SCP 上传
+      # 用 git 对象打包，避免 tar . 时工作区变化导致 "file changed as we read it"
       - name: Pack release archive
         run: |
-          tar czf release.tgz \
-            --exclude=.git \
-            --exclude=release.tgz \
-            .
+          set -euo pipefail
+          git archive --format=tar.gz --output=release.tgz HEAD
+          ls -lh release.tgz
+          for f in docker-compose.yml Dockerfile config.docker.yaml; do
+            tar -tzf release.tgz | grep -qx "$f" || { echo "missing $f in archive"; exit 1; }
+          done
 
       - name: Upload to Tencent Cloud
         uses: appleboy/scp-action@v1.0.0
@@ -49,6 +55,7 @@ jobs:
           username: ${{ secrets.DEPLOY_USER }}
           key: ${{ secrets.DEPLOY_SSH_KEY }}
           port: ${{ secrets.DEPLOY_PORT != '' && secrets.DEPLOY_PORT || 22 }}
+          timeout: 10m
           source: release.tgz
           target: /tmp
 
@@ -63,10 +70,27 @@ jobs:
           script: |
             set -euo pipefail
             DEPLOY_PATH="${{ secrets.DEPLOY_PATH != '' && secrets.DEPLOY_PATH || '/opt/go-lobby' }}"
+
+            command -v docker >/dev/null
+            docker compose version >/dev/null
+            test -f /tmp/release.tgz
+
+            STAGING="/tmp/go-lobby-staging.$$"
+            mkdir -p "$STAGING"
+            tar xzf /tmp/release.tgz -C "$STAGING"
+            rm -f /tmp/release.tgz
+
+            test -f "$STAGING/docker-compose.yml"
+            test -f "$STAGING/Dockerfile"
+            test -f "$STAGING/config.docker.yaml"
+
             mkdir -p "$DEPLOY_PATH"
             find "$DEPLOY_PATH" -mindepth 1 -maxdepth 1 -exec rm -rf {} +
-            tar xzf /tmp/release.tgz -C "$DEPLOY_PATH"
-            rm -f /tmp/release.tgz
+            cp -a "$STAGING"/. "$DEPLOY_PATH"/
+            rm -rf "$STAGING"
+
             cd "$DEPLOY_PATH"
             export DOCKER_BUILDKIT=1
+            export COMPOSE_DOCKER_CLI_BUILD=1
             docker compose up -d --build
+            docker compose ps
