@@ -32,7 +32,27 @@ jobs:
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     steps:
-      - name: Deploy to Tencent Cloud via SSH
+      - uses: actions/checkout@v4
+
+      # 腾讯云访问 GitHub 不稳定，不在服务器上 git pull，改由 Actions 打包后 SCP 上传
+      - name: Pack release archive
+        run: |
+          tar czf release.tgz \
+            --exclude=.git \
+            --exclude=release.tgz \
+            .
+
+      - name: Upload to Tencent Cloud
+        uses: appleboy/scp-action@v1.0.0
+        with:
+          host: ${{ secrets.DEPLOY_HOST }}
+          username: ${{ secrets.DEPLOY_USER }}
+          key: ${{ secrets.DEPLOY_SSH_KEY }}
+          port: ${{ secrets.DEPLOY_PORT != '' && secrets.DEPLOY_PORT || 22 }}
+          source: release.tgz
+          target: /tmp
+
+      - name: Deploy on server
         uses: appleboy/ssh-action@v1.2.0
         with:
           host: ${{ secrets.DEPLOY_HOST }}
@@ -43,13 +63,10 @@ jobs:
           script: |
             set -euo pipefail
             DEPLOY_PATH="${{ secrets.DEPLOY_PATH != '' && secrets.DEPLOY_PATH || '/opt/go-lobby' }}"
-            git config --global --add safe.directory '*'
-            git config --global --add safe.directory "$DEPLOY_PATH"
-            if [ "$(id -u)" -eq 0 ]; then
-              chown -R root:root "$DEPLOY_PATH"
-            fi
+            mkdir -p "$DEPLOY_PATH"
+            find "$DEPLOY_PATH" -mindepth 1 -maxdepth 1 -exec rm -rf {} +
+            tar xzf /tmp/release.tgz -C "$DEPLOY_PATH"
+            rm -f /tmp/release.tgz
             cd "$DEPLOY_PATH"
-            git fetch origin main
-            git reset --hard origin/main
             export DOCKER_BUILDKIT=1
             docker compose up -d --build
